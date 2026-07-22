@@ -2,6 +2,7 @@
 setlocal
 
 cd /d "%~dp0"
+chcp 65001 >nul
 
 if not defined TWITCH_CLIENT_ID (
   echo TWITCH_CLIENT_ID is not set.
@@ -22,7 +23,7 @@ echo Project: %CD%
 echo Timezone: Asia/Taipei
 echo.
 
-python src\run_local_scheduler.py --once --timezone Asia/Taipei
+fnm exec --using 20.20.1 python src\run_local_scheduler.py --once --timezone Asia/Taipei --collection-timeout-seconds 240
 
 echo.
 echo One-time collection finished.

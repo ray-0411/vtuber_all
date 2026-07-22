@@ -13,20 +13,24 @@ import json
 import os
 import re
 import sqlite3
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import yt_dlp
 
 from streamer_tables import Streamer, read_live_streamers
+from stream_titles import resolve_title_id
 from time_utils import now_db_time, unix_to_db_time
 from working_log import fail_job, finish_job, start_job
 from youtube_utils import build_youtube_channel_url
 
 
 DEFAULT_DATABASE = "live_data.db"
+YTJS_HELPER = Path(__file__).with_name("youtube_live_ytjs.mjs")
 YOUTUBE_VIDEO_ID_PATTERN = re.compile(r"(?:v=|youtu\.be/|/shorts/)([A-Za-z0-9_-]{11})")
 NETWORK_ERROR_PATTERNS = (
     "getaddrinfo failed",
@@ -189,6 +193,106 @@ def fetch_youtube_live(channel_url: str, debug: bool = False) -> YouTubeLiveResu
     )
 
 
+def fetch_youtube_live_batch_ytjs(
+    streamers: list[Streamer],
+    debug: bool = False,
+    progress: bool = False,
+) -> tuple[dict[str, YouTubeLiveResult | None], list[str], dict[str, str]]:
+    payload = [
+        {
+            "vtuber_id": streamer.vtuber_id,
+            "name": streamer.name,
+            "youtube_url": streamer.youtube_url,
+            "youtube_channel_id": streamer.youtube_channel_id,
+        }
+        for streamer in streamers
+    ]
+    env = os.environ.copy()
+    if progress:
+        env["YTJS_PROGRESS"] = "1"
+
+    timeout = float(os.environ.get("YTJS_COLLECTOR_TIMEOUT", "180"))
+    if progress:
+        process = subprocess.Popen(
+            ["node", str(YTJS_HELPER)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=None,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
+        )
+        try:
+            stdout, _ = process.communicate(
+                json.dumps(payload, ensure_ascii=False),
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout, _ = process.communicate()
+            raise TimeoutError(f"YouTube.js helper exceeded {timeout:.0f} seconds")
+        stderr = ""
+        returncode = process.returncode
+    else:
+        process = subprocess.run(
+            ["node", str(YTJS_HELPER)],
+            input=json.dumps(payload, ensure_ascii=False),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            check=False,
+            env=env,
+        )
+        stdout = process.stdout
+        stderr = process.stderr
+        returncode = process.returncode
+
+    if debug and stderr.strip():
+        debug_log(debug, f"ytjs stderr:\n{stderr.strip()}")
+
+    if returncode != 0:
+        raise RuntimeError(
+            f"YouTube.js helper failed with exit code {returncode}: "
+            f"{stderr.strip() or stdout.strip()}"
+        )
+
+    data = json.loads(stdout)
+    results: dict[str, YouTubeLiveResult | None] = {}
+    errors: list[str] = []
+    channel_ids: dict[str, str] = {}
+
+    for item in data.get("results", []):
+        vtuber_id = item.get("vtuber_id")
+        if not vtuber_id:
+            continue
+
+        channel_id = item.get("channel_id")
+        if isinstance(channel_id, str) and channel_id:
+            channel_ids[vtuber_id] = channel_id
+
+        error = item.get("error")
+        if error:
+            errors.append(f"{vtuber_id}: {error}")
+
+        live = item.get("live")
+        if not live:
+            results[vtuber_id] = None
+            continue
+
+        results[vtuber_id] = YouTubeLiveResult(
+            platform_stream_id=live["platform_stream_id"],
+            stream_url=live["stream_url"],
+            title=live.get("title") or "",
+            viewer_count=live.get("viewer_count"),
+            started_at=live.get("started_at"),
+        )
+
+    return results, errors, channel_ids
+
+
 def upsert_stream(conn: sqlite3.Connection, streamer: Streamer, live: YouTubeLiveResult) -> int:
     current_time = now_db_time()
     row = conn.execute(
@@ -259,6 +363,7 @@ def insert_snapshot(
     stream_id: int,
     streamer: Streamer,
     live: YouTubeLiveResult,
+    title_id: int | None,
 ) -> bool:
     if live.viewer_count is None:
         return False
@@ -272,7 +377,7 @@ def insert_snapshot(
             platform,
             viewer_count,
             captured_at,
-            title
+            title_id
         )
         VALUES (?, ?, 'youtube', ?, ?, ?)
         """,
@@ -281,7 +386,7 @@ def insert_snapshot(
             streamer.vtuber_id,
             live.viewer_count,
             current_time,
-            live.title,
+            title_id,
         ),
     )
     return True
@@ -292,6 +397,7 @@ def update_live_status(
     streamer: Streamer,
     stream_id: int,
     live: YouTubeLiveResult,
+    title_id: int | None,
 ) -> None:
     current_time = now_db_time()
     conn.execute(
@@ -303,7 +409,7 @@ def update_live_status(
             stream_id,
             viewer_count,
             stream_url,
-            title,
+            title_id,
             started_at,
             last_checked_at,
             last_live_at
@@ -314,7 +420,7 @@ def update_live_status(
             stream_id = excluded.stream_id,
             viewer_count = excluded.viewer_count,
             stream_url = excluded.stream_url,
-            title = excluded.title,
+            title_id = excluded.title_id,
             started_at = excluded.started_at,
             last_checked_at = excluded.last_checked_at,
             last_live_at = excluded.last_live_at
@@ -324,7 +430,7 @@ def update_live_status(
             stream_id,
             live.viewer_count,
             live.stream_url,
-            live.title,
+            title_id,
             live.started_at,
             current_time,
             current_time,
@@ -364,6 +470,32 @@ def collect_youtube(database: str, debug: bool = False) -> dict[str, Any]:
         live_count = 0
         snapshots_inserted = 0
         errors: list[str] = []
+        ytjs_results: dict[str, YouTubeLiveResult | None] | None = None
+        progress = env_truthy("YOUTUBE_COLLECTOR_PROGRESS")
+        ytjs_required = env_truthy("YTJS_REQUIRED")
+
+        if (
+            not env_truthy("YTJS_COLLECTOR_DISABLED")
+            and YTJS_HELPER.exists()
+        ):
+            try:
+                ytjs_results, ytjs_errors, channel_ids = fetch_youtube_live_batch_ytjs(
+                    streamers,
+                    debug=debug,
+                    progress=progress,
+                )
+                errors.extend(f"ytjs: {error}" for error in ytjs_errors)
+                debug_log(
+                    debug,
+                    "ytjs checked "
+                    f"{len(ytjs_results)} streamers, resolved {len(channel_ids)} channel ids",
+                )
+            except Exception as exc:
+                ytjs_results = None
+                message = f"ytjs batch: {type(exc).__name__}: {exc}"
+                if ytjs_required:
+                    raise RuntimeError(message) from exc
+                errors.append(message)
 
         with sqlite3.connect(database) as conn:
             conn.execute("PRAGMA foreign_keys = ON")
@@ -376,12 +508,15 @@ def collect_youtube(database: str, debug: bool = False) -> dict[str, Any]:
                     debug,
                     f"checking {streamer.vtuber_id} {youtube_channel_url}",
                 )
-                try:
-                    live = fetch_youtube_live(youtube_channel_url or "", debug=debug)
-                except Exception as exc:
-                    errors.append(f"{streamer.vtuber_id}: {type(exc).__name__}: {exc}")
-                    update_offline_status(conn, streamer)
-                    continue
+                if ytjs_results is not None:
+                    live = ytjs_results.get(streamer.vtuber_id)
+                else:
+                    try:
+                        live = fetch_youtube_live(youtube_channel_url or "", debug=debug)
+                    except Exception as exc:
+                        errors.append(f"{streamer.vtuber_id}: {type(exc).__name__}: {exc}")
+                        update_offline_status(conn, streamer)
+                        continue
 
                 if live is None:
                     update_offline_status(conn, streamer)
@@ -395,9 +530,10 @@ def collect_youtube(database: str, debug: bool = False) -> dict[str, Any]:
                     f"title={live.title!r}",
                 )
                 stream_id = upsert_stream(conn, streamer, live)
-                if insert_snapshot(conn, stream_id, streamer, live):
+                title_id = resolve_title_id(conn, streamer.vtuber_id, "youtube", live.title)
+                if insert_snapshot(conn, stream_id, streamer, live, title_id):
                     snapshots_inserted += 1
-                update_live_status(conn, streamer, stream_id, live)
+                update_live_status(conn, streamer, stream_id, live, title_id)
                 live_count += 1
 
             elapsed = time.perf_counter() - started

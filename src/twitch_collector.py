@@ -22,6 +22,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from streamer_tables import Streamer, read_live_streamers
+from stream_categories import resolve_category_id
+from stream_tags import resolve_tags_id
+from stream_titles import resolve_title_id
 from time_utils import iso_to_db_time, now_db_time
 from working_log import fail_job, finish_job, start_job
 
@@ -215,6 +218,9 @@ def insert_snapshot(
     stream_id: int,
     streamer: Streamer,
     stream: TwitchStream,
+    title_id: int | None,
+    category_id: int | None,
+    tags_id: int | None,
 ) -> None:
     current_time = now_db_time()
     conn.execute(
@@ -225,9 +231,9 @@ def insert_snapshot(
             platform,
             viewer_count,
             captured_at,
-            title,
-            category,
-            tags
+            title_id,
+            category_id,
+            tags_id
         )
         VALUES (?, ?, 'twitch', ?, ?, ?, ?, ?)
         """,
@@ -236,9 +242,9 @@ def insert_snapshot(
             streamer.vtuber_id,
             stream.viewer_count,
             current_time,
-            stream.title,
-            stream.category,
-            json.dumps(stream.tags, ensure_ascii=False),
+            title_id,
+            category_id,
+            tags_id,
         ),
     )
 
@@ -248,6 +254,9 @@ def update_live_status(
     streamer: Streamer,
     stream_id: int,
     stream: TwitchStream,
+    title_id: int | None,
+    category_id: int | None,
+    tags_id: int | None,
 ) -> None:
     current_time = now_db_time()
     conn.execute(
@@ -259,9 +268,9 @@ def update_live_status(
             stream_id,
             viewer_count,
             stream_url,
-            title,
-            category,
-            tags,
+            title_id,
+            category_id,
+            tags_id,
             started_at,
             last_checked_at,
             last_live_at
@@ -272,9 +281,9 @@ def update_live_status(
             stream_id = excluded.stream_id,
             viewer_count = excluded.viewer_count,
             stream_url = excluded.stream_url,
-            title = excluded.title,
-            category = excluded.category,
-            tags = excluded.tags,
+            title_id = excluded.title_id,
+            category_id = excluded.category_id,
+            tags_id = excluded.tags_id,
             started_at = excluded.started_at,
             last_checked_at = excluded.last_checked_at,
             last_live_at = excluded.last_live_at
@@ -284,9 +293,9 @@ def update_live_status(
             stream_id,
             stream.viewer_count,
             f"https://www.twitch.tv/{stream.user_login}",
-            stream.title,
-            stream.category,
-            json.dumps(stream.tags, ensure_ascii=False),
+            title_id,
+            category_id,
+            tags_id,
             stream.started_at,
             current_time,
             current_time,
@@ -338,8 +347,22 @@ def collect_twitch(database: str, client_id: str, client_secret: str) -> dict[st
                     continue
 
                 stream_id = upsert_stream(conn, streamer, stream)
-                insert_snapshot(conn, stream_id, streamer, stream)
-                update_live_status(conn, streamer, stream_id, stream)
+                title_id = resolve_title_id(conn, streamer.vtuber_id, "twitch", stream.title)
+                category_id = resolve_category_id(
+                    conn, streamer.vtuber_id, "twitch", stream.category
+                )
+                tags_id = resolve_tags_id(
+                    conn,
+                    streamer.vtuber_id,
+                    "twitch",
+                    json.dumps(stream.tags, ensure_ascii=False),
+                )
+                insert_snapshot(
+                    conn, stream_id, streamer, stream, title_id, category_id, tags_id
+                )
+                update_live_status(
+                    conn, streamer, stream_id, stream, title_id, category_id, tags_id
+                )
                 snapshots_inserted += 1
 
             elapsed = time.perf_counter() - started

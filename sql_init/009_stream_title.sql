@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS stream_title (
+    title_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL UNIQUE
+);
+

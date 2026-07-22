@@ -13,9 +13,16 @@ import argparse
 import sqlite3
 from pathlib import Path
 
+from migrate_stream_titles import migrate_stream_titles
+from migrate_stream_categories import migrate_stream_categories
+from migrate_stream_tags import migrate_stream_tags
+
 DEFAULT_DATABASE = "live_data.db"
 CORE_SQL_FILES = [
     "002_streamer.sql",
+    "009_stream_category.sql",
+    "009_stream_tags.sql",
+    "009_stream_title.sql",
     "010_stream.sql",
     "011_stream_snapshot.sql",
     "012_current_live_status.sql",
@@ -41,6 +48,9 @@ def init_core_tables(database: str) -> list[str]:
         for file_name in CORE_SQL_FILES:
             run_sql_file(conn, sql_dir / file_name)
             executed.append(file_name)
+        migrate_stream_titles(conn)
+        migrate_stream_categories(conn)
+        migrate_stream_tags(conn)
 
     return executed
 

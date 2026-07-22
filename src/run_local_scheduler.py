@@ -11,6 +11,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import ctypes
+import json
+import multiprocessing
+import os
+import queue
 import sqlite3
 import sys
 import time
@@ -23,10 +28,13 @@ from collect_all import DEFAULT_CONFIG_DATABASE, DEFAULT_DATABASE, collect_all
 from init_db import init_database
 from init_streamer_config import DEFAULT_GROUPS
 from create_streamer_group import create_streamer_group
+from time_utils import now_db_time
 
 
 DEFAULT_INTERVAL_SECONDS = 300
+DEFAULT_COLLECTION_TIMEOUT_SECONDS = 240
 DEFAULT_TIMEZONE = "Asia/Taipei"
+COLLECTOR_JOB_NAMES = ("collect_all", "youtube_collector", "twitch_collector")
 
 
 @dataclass(frozen=True)
@@ -62,6 +70,88 @@ def seconds_until(target: datetime) -> float:
     return max(0.0, (target - datetime.now(target.tzinfo)).total_seconds())
 
 
+def process_is_running(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return False
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return True
+
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def lock_path_for_database(database: str) -> str:
+    return f"{os.path.abspath(database)}.collect.lock"
+
+
+def read_lock_pids(lock_path: str) -> list[int]:
+    try:
+        with open(lock_path, encoding="utf-8") as file:
+            lines = [line.strip().lstrip("\ufeff") for line in file]
+    except OSError:
+        return []
+
+    pids: list[int] = []
+    for line in lines:
+        try:
+            pids.append(int(line))
+        except ValueError:
+            continue
+    return pids
+
+
+def write_collection_lock(lock_path: str, pids: list[int]) -> None:
+    payload = "".join(f"{pid}\n" for pid in pids)
+    payload += f"{now_db_time()}\n"
+    with open(lock_path, "w", encoding="utf-8") as file:
+        file.write(payload)
+
+
+def lock_has_running_process(lock_path: str) -> bool:
+    return any(process_is_running(pid) for pid in read_lock_pids(lock_path))
+
+
+def acquire_collection_lock(database: str) -> tuple[int, str] | None:
+    lock_path = lock_path_for_database(database)
+
+    while True:
+        try:
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            if lock_has_running_process(lock_path):
+                return None
+            try:
+                os.unlink(lock_path)
+            except FileNotFoundError:
+                continue
+            except OSError:
+                return None
+            continue
+
+        with os.fdopen(fd, "w", encoding="utf-8") as file:
+            file.write(f"{os.getpid()}\n{now_db_time()}\n")
+        return os.open(lock_path, os.O_RDONLY), lock_path
+
+
+def release_collection_lock(lock: tuple[int, str]) -> None:
+    fd, lock_path = lock
+    try:
+        os.close(fd)
+    except OSError:
+        pass
+    try:
+        os.unlink(lock_path)
+    except FileNotFoundError:
+        pass
+
+
 def initialize_databases(database: str, config_database: str) -> None:
     init_database(database)
     for group in DEFAULT_GROUPS:
@@ -77,11 +167,13 @@ def read_current_lives(database: str) -> list[LiveStatusRow]:
                 current_live_status.vtuber_id,
                 streamer.name,
                 current_live_status.viewer_count,
-                current_live_status.title,
+                stream_title.title,
                 current_live_status.stream_url
             FROM current_live_status
             JOIN streamer
               ON streamer.vtuber_id = current_live_status.vtuber_id
+            LEFT JOIN stream_title
+              ON stream_title.title_id = current_live_status.title_id
             WHERE current_live_status.is_live = 1
             ORDER BY current_live_status.platform, streamer.group_name, streamer.display_order
             """
@@ -98,6 +190,12 @@ def read_current_lives(database: str) -> list[LiveStatusRow]:
         )
         for row in rows
     ]
+
+
+def latest_working_id(database: str) -> int:
+    with sqlite3.connect(database) as conn:
+        row = conn.execute("SELECT COALESCE(MAX(working_id), 0) FROM working").fetchone()
+    return int(row[0])
 
 
 def print_live_report(database: str) -> None:
@@ -147,32 +245,263 @@ def print_error_report(summary: dict[str, object]) -> None:
         print(f"- {error}", flush=True)
 
 
-def run_once(database: str, config_database: str, timezone_name: str) -> int:
-    started = time.perf_counter()
-    print(f"[{now_text(timezone_name)}] collect start", flush=True)
-    summary = collect_all(database, config_database)
-    elapsed = time.perf_counter() - started
+def collect_all_worker(
+    database: str,
+    config_database: str,
+    result_queue: multiprocessing.Queue,
+) -> None:
+    try:
+        result_queue.put(("success", collect_all(database, config_database)))
+    except BaseException as exc:
+        result_queue.put(
+            (
+                "error",
+                type(exc).__name__,
+                str(exc),
+                traceback.format_exc(),
+            )
+        )
 
-    print(
-        "[{time}] collect done status={status} checked={checked} live={live} "
-        "offline={offline} snapshots_inserted={snapshots_inserted} "
-        "synced_streamers={synced_streamers} errors={errors} elapsed_seconds={elapsed:.2f}".format(
-            time=now_text(timezone_name),
-            status=summary["status"],
-            checked=summary["checked"],
-            live=summary["live"],
-            offline=summary["offline"],
-            snapshots_inserted=summary["snapshots_inserted"],
-            synced_streamers=summary["synced_streamers"],
-            errors=len(summary["errors"]),
-            elapsed=elapsed,
-        ),
-        flush=True,
+
+def fail_timed_out_jobs(
+    database: str,
+    started_at: str,
+    working_id_after: int,
+    elapsed_seconds: float,
+    timeout_seconds: int,
+) -> None:
+    current_time = now_db_time()
+    error_message = (
+        f"collection timeout: exceeded {timeout_seconds} seconds; "
+        "unfinished checks in this run were counted as errors"
     )
+    summary = {
+        "status": "failed",
+        "errors": [error_message],
+        "elapsed_seconds": elapsed_seconds,
+        "timeout_seconds": timeout_seconds,
+    }
+    placeholders = ",".join("?" for _ in COLLECTOR_JOB_NAMES)
+    with sqlite3.connect(database) as conn:
+        cursor = conn.execute(
+            f"""
+            UPDATE working
+            SET
+                status = 'failed',
+                finished_at = ?,
+                elapsed_seconds = ?,
+                error_count = CASE
+                    WHEN error_count > 0 THEN error_count
+                    ELSE 1
+                END,
+                error_message = CASE
+                    WHEN error_message IS NULL OR error_message = '' THEN ?
+                    ELSE error_message || char(10) || ?
+                END,
+                summary = CASE
+                    WHEN summary IS NULL OR summary = '' THEN ?
+                    ELSE summary
+                END
+            WHERE status = 'running'
+              AND working_id > ?
+              AND job_name IN ({placeholders})
+            """,
+            (
+                current_time,
+                elapsed_seconds,
+                error_message,
+                error_message,
+                json.dumps(summary, ensure_ascii=False),
+                working_id_after,
+                *COLLECTOR_JOB_NAMES,
+            ),
+        )
+        if cursor.rowcount == 0:
+            conn.execute(
+                """
+                INSERT INTO working (
+                    job_name,
+                    platform,
+                    started_at,
+                    status,
+                    finished_at,
+                    elapsed_seconds,
+                    error_count,
+                    error_message,
+                    summary
+                )
+                VALUES ('collect_all', NULL, ?, 'failed', ?, ?, 1, ?, ?)
+                """,
+                (
+                    started_at,
+                    current_time,
+                    elapsed_seconds,
+                    error_message,
+                    json.dumps(summary, ensure_ascii=False),
+                ),
+            )
 
-    print_live_report(database)
-    print_error_report(summary)
-    return 0 if summary["status"] in {"success", "partial_success"} else 1
+
+def cleanup_stale_running_jobs(database: str, timeout_seconds: int) -> int:
+    current_time = now_db_time()
+    error_message = (
+        f"stale running job cleaned on scheduler startup after exceeding "
+        f"{timeout_seconds} seconds"
+    )
+    summary = {
+        "status": "failed",
+        "errors": [error_message],
+        "timeout_seconds": timeout_seconds,
+    }
+    placeholders = ",".join("?" for _ in COLLECTOR_JOB_NAMES)
+    with sqlite3.connect(database) as conn:
+        cursor = conn.execute(
+            f"""
+            UPDATE working
+            SET
+                status = 'failed',
+                finished_at = ?,
+                elapsed_seconds = MAX(
+                    0,
+                    (julianday(?) - julianday(started_at)) * 86400.0
+                ),
+                error_count = CASE
+                    WHEN error_count > 0 THEN error_count
+                    ELSE 1
+                END,
+                error_message = CASE
+                    WHEN error_message IS NULL OR error_message = '' THEN ?
+                    ELSE error_message || char(10) || ?
+                END,
+                summary = CASE
+                    WHEN summary IS NULL OR summary = '' THEN ?
+                    ELSE summary
+                END
+            WHERE status = 'running'
+              AND started_at <= datetime('now', '+8 hours', ?)
+              AND job_name IN ({placeholders})
+            """,
+            (
+                current_time,
+                current_time,
+                error_message,
+                error_message,
+                json.dumps(summary, ensure_ascii=False),
+                f"-{timeout_seconds} seconds",
+                *COLLECTOR_JOB_NAMES,
+            ),
+        )
+    return cursor.rowcount
+
+
+def run_collect_all_with_timeout(
+    database: str,
+    config_database: str,
+    timeout_seconds: int,
+    lock_path: str | None = None,
+) -> dict[str, object]:
+    result_queue: multiprocessing.Queue = multiprocessing.Queue()
+    process = multiprocessing.Process(
+        target=collect_all_worker,
+        args=(database, config_database, result_queue),
+    )
+    process.start()
+    if lock_path is not None:
+        write_collection_lock(lock_path, [os.getpid(), process.pid or 0])
+    process.join(timeout_seconds)
+
+    if process.is_alive():
+        process.terminate()
+        process.join(10)
+        if process.is_alive():
+            process.kill()
+            process.join(5)
+        raise TimeoutError(f"collect_all exceeded {timeout_seconds} seconds")
+
+    try:
+        result = result_queue.get_nowait()
+    except queue.Empty as exc:
+        if process.exitcode == 0:
+            raise RuntimeError("collect_all finished without returning a summary") from exc
+        raise RuntimeError(f"collect_all exited with code {process.exitcode}") from exc
+
+    if result[0] == "success":
+        return result[1]
+
+    _, exc_type, message, formatted_traceback = result
+    raise RuntimeError(f"{exc_type}: {message}\n{formatted_traceback}")
+
+
+def run_once(
+    database: str,
+    config_database: str,
+    timezone_name: str,
+    timeout_seconds: int,
+) -> int:
+    lock = acquire_collection_lock(database)
+    if lock is None:
+        print(
+            f"[{now_text(timezone_name)}] collect skipped: another collection is already running",
+            flush=True,
+        )
+        return 1
+
+    started = time.perf_counter()
+    started_at = now_db_time()
+    working_id_after = latest_working_id(database)
+    print(f"[{now_text(timezone_name)}] collect start", flush=True)
+    try:
+        try:
+            summary = run_collect_all_with_timeout(
+                database,
+                config_database,
+                timeout_seconds,
+                lock_path=lock[1],
+            )
+        except TimeoutError as exc:
+            elapsed = time.perf_counter() - started
+            fail_timed_out_jobs(database, started_at, working_id_after, elapsed, timeout_seconds)
+            print(
+                f"[{now_text(timezone_name)}] collect timeout after {elapsed:.2f}s: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
+            print_live_report(database)
+            print_error_report(
+                {
+                    "errors": [
+                        f"collect_all: exceeded {timeout_seconds} seconds; "
+                        "unfinished checks in this run were counted as errors"
+                    ],
+                    "results": {},
+                }
+            )
+            return 1
+
+        elapsed = time.perf_counter() - started
+
+        print(
+            "[{time}] collect done status={status} checked={checked} live={live} "
+            "offline={offline} snapshots_inserted={snapshots_inserted} "
+            "synced_streamers={synced_streamers} errors={errors} elapsed_seconds={elapsed:.2f}".format(
+                time=now_text(timezone_name),
+                status=summary["status"],
+                checked=summary["checked"],
+                live=summary["live"],
+                offline=summary["offline"],
+                snapshots_inserted=summary["snapshots_inserted"],
+                synced_streamers=summary["synced_streamers"],
+                errors=len(summary["errors"]),
+                elapsed=elapsed,
+            ),
+            flush=True,
+        )
+
+        print_live_report(database)
+        print_error_report(summary)
+        return 0 if summary["status"] in {"success", "partial_success"} else 1
+    finally:
+        release_collection_lock(lock)
 
 
 def main() -> int:
@@ -182,6 +511,12 @@ def main() -> int:
     parser.add_argument("--database", default=DEFAULT_DATABASE)
     parser.add_argument("--config-database", default=DEFAULT_CONFIG_DATABASE)
     parser.add_argument("--interval-seconds", type=int, default=DEFAULT_INTERVAL_SECONDS)
+    parser.add_argument(
+        "--collection-timeout-seconds",
+        type=int,
+        default=DEFAULT_COLLECTION_TIMEOUT_SECONDS,
+        help="Stop one collection run after this many seconds.",
+    )
     parser.add_argument("--timezone", default=DEFAULT_TIMEZONE)
     parser.add_argument("--once", action="store_true", help="Run one collection and exit.")
     parser.add_argument(
@@ -198,13 +533,23 @@ def main() -> int:
 
     if args.interval_seconds <= 0:
         parser.error("--interval-seconds must be greater than 0")
+    if args.collection_timeout_seconds <= 0:
+        parser.error("--collection-timeout-seconds must be greater than 0")
 
     if not args.skip_init:
         initialize_databases(args.database, args.config_database)
 
+    cleaned_count = cleanup_stale_running_jobs(args.database, args.collection_timeout_seconds)
+    if cleaned_count:
+        print(
+            f"[{now_text(args.timezone)}] cleaned stale running jobs: {cleaned_count}",
+            flush=True,
+        )
+
     print(
         f"[{now_text(args.timezone)}] scheduler timezone={args.timezone} "
-        f"interval_seconds={args.interval_seconds} aligned=true",
+        f"interval_seconds={args.interval_seconds} "
+        f"collection_timeout_seconds={args.collection_timeout_seconds} aligned=true",
         flush=True,
     )
 
@@ -213,7 +558,15 @@ def main() -> int:
     while True:
         if should_run_now:
             try:
-                exit_code = max(exit_code, run_once(args.database, args.config_database, args.timezone))
+                exit_code = max(
+                    exit_code,
+                    run_once(
+                        args.database,
+                        args.config_database,
+                        args.timezone,
+                        args.collection_timeout_seconds,
+                    ),
+                )
             except KeyboardInterrupt:
                 print(f"[{now_text(args.timezone)}] stopped by user", flush=True)
                 return exit_code
@@ -245,4 +598,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     raise SystemExit(main())

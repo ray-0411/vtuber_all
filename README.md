@@ -329,6 +329,42 @@ CREATE TABLE stream (
 - collector 會先查 `(platform, platform_stream_id)` 是否已存在；已存在就更新，不存在才新增，避免同一場直播重複抓取時消耗新的 `stream_id`。
 - `stream_id` 是內部唯一 ID，不保證歷史資料完全連續；如果舊版本已經消耗過流水號，中間仍可能有缺號。
 
+### stream_title
+
+相同的直播標題只保存一次；`stream_snapshot` 與 `current_live_status` 透過
+`title_id` 對應完整標題。
+
+```sql
+CREATE TABLE stream_title (
+    title_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL UNIQUE
+);
+```
+
+### stream_category
+
+相同的非空直播分類只保存一次；空分類以 `category_id = NULL` 保留。
+`stream_snapshot` 與 `current_live_status` 透過 `category_id` 對應完整分類。
+
+```sql
+CREATE TABLE stream_category (
+    category_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category TEXT NOT NULL UNIQUE CHECK (category <> '')
+);
+```
+
+### stream_tags
+
+相同的非空 tags JSON 只保存一次；`NULL`、空字串與 `[]` 都以
+`tags_id = NULL` 保存。快照與目前狀態透過 `tags_id` 對應原始 tags JSON。
+
+```sql
+CREATE TABLE stream_tags (
+    tags_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tags TEXT NOT NULL UNIQUE CHECK (tags <> '' AND tags <> '[]')
+);
+```
+
 ### stream_snapshot
 
 用途：
@@ -363,10 +399,13 @@ CREATE TABLE stream_snapshot (
     platform TEXT NOT NULL CHECK (platform IN ('youtube', 'twitch')),
     viewer_count INTEGER NOT NULL,
     captured_at TEXT NOT NULL DEFAULT (datetime('now', '+8 hours')),
-    title TEXT,
-    category TEXT,
-    tags TEXT,
-    FOREIGN KEY (stream_id) REFERENCES stream(stream_id)
+    title_id INTEGER,
+    category_id INTEGER,
+    tags_id INTEGER,
+    FOREIGN KEY (stream_id) REFERENCES stream(stream_id),
+    FOREIGN KEY (title_id) REFERENCES stream_title(title_id),
+    FOREIGN KEY (category_id) REFERENCES stream_category(category_id),
+    FOREIGN KEY (tags_id) REFERENCES stream_tags(tags_id)
 );
 ```
 
@@ -414,14 +453,17 @@ CREATE TABLE current_live_status (
     stream_id INTEGER,
     viewer_count INTEGER,
     stream_url TEXT,
-    title TEXT,
-    category TEXT,
-    tags TEXT,
+    title_id INTEGER,
+    category_id INTEGER,
+    tags_id INTEGER,
     started_at TEXT,
     last_checked_at TEXT NOT NULL DEFAULT (datetime('now', '+8 hours')),
     last_live_at TEXT,
     PRIMARY KEY (vtuber_id, platform),
-    FOREIGN KEY (stream_id) REFERENCES stream(stream_id)
+    FOREIGN KEY (stream_id) REFERENCES stream(stream_id),
+    FOREIGN KEY (title_id) REFERENCES stream_title(title_id),
+    FOREIGN KEY (category_id) REFERENCES stream_category(category_id),
+    FOREIGN KEY (tags_id) REFERENCES stream_tags(tags_id)
 );
 ```
 
@@ -584,6 +626,9 @@ src/
 ```text
 sql_init/001_streamer_template.sql
 sql_init/002_streamer.sql
+sql_init/009_stream_category.sql
+sql_init/009_stream_tags.sql
+sql_init/009_stream_title.sql
 sql_init/010_stream.sql
 sql_init/011_stream_snapshot.sql
 sql_init/012_current_live_status.sql
@@ -596,6 +641,9 @@ sql_init/013_working.sql
 | --- | --- |
 | `001_streamer_template.sql` | 建立 `streamer_config.db` 團體表的模板 |
 | `002_streamer.sql` | 建立 `live_data.db.streamer` 同步表 |
+| `009_stream_category.sql` | 建立共用的非空直播分類對照表 |
+| `009_stream_tags.sql` | 建立共用的非空 tags JSON 對照表 |
+| `009_stream_title.sql` | 建立共用的直播標題對照表 |
 | `010_stream.sql` | 建立 `stream` 表 |
 | `011_stream_snapshot.sql` | 建立 `stream_snapshot` 表 |
 | `012_current_live_status.sql` | 建立 `current_live_status` 表 |

@@ -384,8 +384,10 @@ class StreamerForm(ttk.Frame):
             messagebox.showerror("Save failed", f"{type(exc).__name__}: {exc}")
             return
 
-        self.status_var.set(f"Saved {vtuber_id} in {table_name}.{synced_text}")
-        messagebox.showinfo("Saved", f"Saved {vtuber_id} in {table_name}.{synced_text}")
+        success_message = f"Saved {vtuber_id} in {table_name}.{synced_text}"
+        self.clear_form()
+        self.status_var.set(success_message)
+        messagebox.showinfo("Saved", success_message)
 
     def clear_form(self) -> None:
         self.vtuber_id_var.set("")
