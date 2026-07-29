@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import argparse
 import ctypes
-import json
 import multiprocessing
 import os
 import queue
@@ -251,7 +250,34 @@ def collect_all_worker(
     result_queue: multiprocessing.Queue,
 ) -> None:
     try:
-        result_queue.put(("success", collect_all(database, config_database)))
+        summary = collect_all(database, config_database)
+        queue_summary = dict(summary)
+        top_errors = summary.get("errors", [])
+        if isinstance(top_errors, list) and len(top_errors) > 20:
+            queue_summary["errors"] = [
+                *top_errors[:20],
+                f"... {len(top_errors) - 20} more errors; see working.error_message",
+            ]
+
+        results = summary.get("results", {})
+        if isinstance(results, dict):
+            queue_results = {}
+            for platform, result in results.items():
+                if not isinstance(result, dict):
+                    queue_results[platform] = result
+                    continue
+                queue_result = dict(result)
+                platform_errors = result.get("errors", [])
+                if isinstance(platform_errors, list) and len(platform_errors) > 20:
+                    queue_result["errors"] = [
+                        *platform_errors[:20],
+                        f"... {len(platform_errors) - 20} more errors; "
+                        "see working.error_message",
+                    ]
+                queue_results[platform] = queue_result
+            queue_summary["results"] = queue_results
+
+        result_queue.put(("success", queue_summary))
     except BaseException as exc:
         result_queue.put(
             (
@@ -275,12 +301,6 @@ def fail_timed_out_jobs(
         f"collection timeout: exceeded {timeout_seconds} seconds; "
         "unfinished checks in this run were counted as errors"
     )
-    summary = {
-        "status": "failed",
-        "errors": [error_message],
-        "elapsed_seconds": elapsed_seconds,
-        "timeout_seconds": timeout_seconds,
-    }
     placeholders = ",".join("?" for _ in COLLECTOR_JOB_NAMES)
     with sqlite3.connect(database) as conn:
         cursor = conn.execute(
@@ -297,10 +317,6 @@ def fail_timed_out_jobs(
                 error_message = CASE
                     WHEN error_message IS NULL OR error_message = '' THEN ?
                     ELSE error_message || char(10) || ?
-                END,
-                summary = CASE
-                    WHEN summary IS NULL OR summary = '' THEN ?
-                    ELSE summary
                 END
             WHERE status = 'running'
               AND working_id > ?
@@ -311,7 +327,6 @@ def fail_timed_out_jobs(
                 elapsed_seconds,
                 error_message,
                 error_message,
-                json.dumps(summary, ensure_ascii=False),
                 working_id_after,
                 *COLLECTOR_JOB_NAMES,
             ),
@@ -327,17 +342,15 @@ def fail_timed_out_jobs(
                     finished_at,
                     elapsed_seconds,
                     error_count,
-                    error_message,
-                    summary
+                    error_message
                 )
-                VALUES ('collect_all', NULL, ?, 'failed', ?, ?, 1, ?, ?)
+                VALUES ('collect_all', NULL, ?, 'failed', ?, ?, 1, ?)
                 """,
                 (
                     started_at,
                     current_time,
                     elapsed_seconds,
                     error_message,
-                    json.dumps(summary, ensure_ascii=False),
                 ),
             )
 
@@ -348,11 +361,6 @@ def cleanup_stale_running_jobs(database: str, timeout_seconds: int) -> int:
         f"stale running job cleaned on scheduler startup after exceeding "
         f"{timeout_seconds} seconds"
     )
-    summary = {
-        "status": "failed",
-        "errors": [error_message],
-        "timeout_seconds": timeout_seconds,
-    }
     placeholders = ",".join("?" for _ in COLLECTOR_JOB_NAMES)
     with sqlite3.connect(database) as conn:
         cursor = conn.execute(
@@ -372,10 +380,6 @@ def cleanup_stale_running_jobs(database: str, timeout_seconds: int) -> int:
                 error_message = CASE
                     WHEN error_message IS NULL OR error_message = '' THEN ?
                     ELSE error_message || char(10) || ?
-                END,
-                summary = CASE
-                    WHEN summary IS NULL OR summary = '' THEN ?
-                    ELSE summary
                 END
             WHERE status = 'running'
               AND started_at <= datetime('now', '+8 hours', ?)
@@ -386,7 +390,6 @@ def cleanup_stale_running_jobs(database: str, timeout_seconds: int) -> int:
                 current_time,
                 error_message,
                 error_message,
-                json.dumps(summary, ensure_ascii=False),
                 f"-{timeout_seconds} seconds",
                 *COLLECTOR_JOB_NAMES,
             ),

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import sqlite3
-from typing import Any
 
 from time_utils import now_db_time
 
@@ -34,9 +32,9 @@ def finish_job(
     live_count: int = 0,
     offline_count: int = 0,
     snapshots_inserted: int = 0,
+    synced_streamers: int | None = None,
     error_count: int = 0,
     error_message: str | None = None,
-    summary: dict[str, Any] | None = None,
 ) -> None:
     current_time = now_db_time()
     conn.execute(
@@ -50,9 +48,9 @@ def finish_job(
             live_count = ?,
             offline_count = ?,
             snapshots_inserted = ?,
+            synced_streamers = ?,
             error_count = ?,
-            error_message = ?,
-            summary = ?
+            error_message = ?
         WHERE working_id = ?
         """,
         (
@@ -63,9 +61,9 @@ def finish_job(
             live_count,
             offline_count,
             snapshots_inserted,
+            synced_streamers,
             error_count,
             error_message,
-            json.dumps(summary, ensure_ascii=False) if summary is not None else None,
             working_id,
         ),
     )
@@ -77,14 +75,14 @@ def fail_job(
     *,
     elapsed_seconds: float,
     error_message: str,
-    summary: dict[str, Any] | None = None,
+    synced_streamers: int | None = None,
 ) -> None:
     finish_job(
         conn,
         working_id,
         status="failed",
         elapsed_seconds=elapsed_seconds,
+        synced_streamers=synced_streamers,
         error_count=1,
         error_message=error_message,
-        summary=summary,
     )

@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS working (
     live_count INTEGER NOT NULL DEFAULT 0,
     offline_count INTEGER NOT NULL DEFAULT 0,
     snapshots_inserted INTEGER NOT NULL DEFAULT 0,
+    synced_streamers INTEGER,
     error_count INTEGER NOT NULL DEFAULT 0,
-    error_message TEXT,
-    summary TEXT
+    error_message TEXT
 );

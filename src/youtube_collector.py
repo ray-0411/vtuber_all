@@ -195,15 +195,18 @@ def fetch_youtube_live(channel_url: str, debug: bool = False) -> YouTubeLiveResu
 
 def fetch_youtube_live_batch_ytjs(
     streamers: list[Streamer],
+    previously_live_ids: set[str] | None = None,
     debug: bool = False,
     progress: bool = False,
 ) -> tuple[dict[str, YouTubeLiveResult | None], list[str], dict[str, str]]:
+    previously_live_ids = previously_live_ids or set()
     payload = [
         {
             "vtuber_id": streamer.vtuber_id,
             "name": streamer.name,
             "youtube_url": streamer.youtube_url,
             "youtube_channel_id": streamer.youtube_channel_id,
+            "was_live": streamer.vtuber_id in previously_live_ids,
         }
         for streamer in streamers
     ]
@@ -276,6 +279,9 @@ def fetch_youtube_live_batch_ytjs(
         error = item.get("error")
         if error:
             errors.append(f"{vtuber_id}: {error}")
+            # An errored check is an unknown state, not a confirmed offline state.
+            # Leave it out of results so the caller can preserve the last status.
+            continue
 
         live = item.get("live")
         if not live:
@@ -466,6 +472,17 @@ def collect_youtube(database: str, debug: bool = False) -> dict[str, Any]:
             conn.execute("PRAGMA foreign_keys = ON")
             working_id = start_job(conn, "youtube_collector", "youtube")
             streamers = get_youtube_streamers(conn)
+            previously_live_ids = {
+                row[0]
+                for row in conn.execute(
+                    """
+                    SELECT vtuber_id
+                    FROM current_live_status
+                    WHERE platform = 'youtube'
+                      AND is_live = 1
+                    """
+                )
+            }
 
         live_count = 0
         snapshots_inserted = 0
@@ -481,6 +498,7 @@ def collect_youtube(database: str, debug: bool = False) -> dict[str, Any]:
             try:
                 ytjs_results, ytjs_errors, channel_ids = fetch_youtube_live_batch_ytjs(
                     streamers,
+                    previously_live_ids=previously_live_ids,
                     debug=debug,
                     progress=progress,
                 )
@@ -509,6 +527,12 @@ def collect_youtube(database: str, debug: bool = False) -> dict[str, Any]:
                     f"checking {streamer.vtuber_id} {youtube_channel_url}",
                 )
                 if ytjs_results is not None:
+                    if streamer.vtuber_id not in ytjs_results:
+                        debug_log(
+                            debug,
+                            f"unknown {streamer.vtuber_id}; preserving previous status",
+                        )
+                        continue
                     live = ytjs_results.get(streamer.vtuber_id)
                 else:
                     try:
@@ -566,7 +590,6 @@ def collect_youtube(database: str, debug: bool = False) -> dict[str, Any]:
                     snapshots_inserted=summary["snapshots_inserted"],
                     error_count=len(errors),
                     error_message="\n".join(errors) if errors else None,
-                    summary=summary,
                 )
             return summary
     except Exception as exc:

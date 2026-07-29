@@ -6,3 +6,5 @@ venv/
 node_modules/
 backups/
 import_previews/
+.tmp_*/
+*.collect.lock

@@ -10,6 +10,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import sqlite3
 from pathlib import Path
 
@@ -39,6 +40,31 @@ def run_sql_file(conn: sqlite3.Connection, path: Path) -> None:
     conn.executescript(sql)
 
 
+def migrate_working_summary(conn: sqlite3.Connection) -> None:
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(working)")}
+    if "synced_streamers" not in columns:
+        conn.execute("ALTER TABLE working ADD COLUMN synced_streamers INTEGER")
+    if "summary" not in columns:
+        return
+
+    rows = conn.execute(
+        "SELECT working_id, summary FROM working WHERE summary IS NOT NULL AND summary <> ''"
+    ).fetchall()
+    for working_id, raw_summary in rows:
+        try:
+            summary = json.loads(raw_summary)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        synced_streamers = summary.get("synced_streamers")
+        if isinstance(synced_streamers, int):
+            conn.execute(
+                "UPDATE working SET synced_streamers=? WHERE working_id=?",
+                (synced_streamers, working_id),
+            )
+
+    conn.execute("ALTER TABLE working DROP COLUMN summary")
+
+
 def init_core_tables(database: str) -> list[str]:
     sql_dir = project_root() / "sql_init"
     executed: list[str] = []
@@ -48,6 +74,7 @@ def init_core_tables(database: str) -> list[str]:
         for file_name in CORE_SQL_FILES:
             run_sql_file(conn, sql_dir / file_name)
             executed.append(file_name)
+        migrate_working_summary(conn)
         migrate_stream_titles(conn)
         migrate_stream_categories(conn)
         migrate_stream_tags(conn)

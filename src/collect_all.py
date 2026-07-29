@@ -109,7 +109,7 @@ def collect_all(database: str, config_database: str) -> dict[str, Any]:
                 working_id,
                 elapsed_seconds=elapsed,
                 error_message="\n".join(errors),
-                summary=summary,
+                synced_streamers=synced_count,
             )
         else:
             finish_job(
@@ -121,9 +121,9 @@ def collect_all(database: str, config_database: str) -> dict[str, Any]:
                 live_count=live_count,
                 offline_count=offline_count,
                 snapshots_inserted=snapshots_inserted,
+                synced_streamers=synced_count,
                 error_count=error_count,
                 error_message="\n".join(errors) if errors else None,
-                summary=summary,
             )
 
     return {

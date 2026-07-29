@@ -385,7 +385,6 @@ def collect_twitch(database: str, client_id: str, client_secret: str) -> dict[st
                     live_count=summary["live"],
                     offline_count=summary["offline"],
                     snapshots_inserted=summary["snapshots_inserted"],
-                    summary=summary,
                 )
             return summary
     except Exception as exc:

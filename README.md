@@ -42,7 +42,19 @@ Asia/Taipei
 ```powershell
 $env:TWITCH_CLIENT_ID="你的 Twitch Client ID"
 $env:TWITCH_CLIENT_SECRET="你的 Twitch Client Secret"
+$env:YOUTUBE_COOKIE = Read-Host "Paste YouTube Cookie"
 ```
+
+YouTube 抓取預設會在每個頻道請求前隨機等待 200～600ms，降低短時間連續請求的頻率。
+目前同時使用 4 個 worker，269 個頻道平均約增加 27 秒。可在啟動 scheduler 前調整：
+
+```powershell
+$env:YTJS_REQUEST_DELAY_MIN_MS = "200"
+$env:YTJS_REQUEST_DELAY_MAX_MS = "600"
+```
+
+兩者都設為 `0` 可關閉延遲。環境變數只對同一個 PowerShell 視窗啟動的程式有效。
+單一 YouTube 頻道的預設逾時為 10 秒；暫時性的 `fetch failed` 會自動等待後重試一次。
 
 啟動本機排程：
 
@@ -512,7 +524,7 @@ CREATE TABLE current_live_status (
 | `snapshots_inserted` | `INTEGER` | 是 | 本次新增觀看人數快照數 |
 | `error_count` | `INTEGER` | 是 | 本次錯誤數 |
 | `error_message` | `TEXT` | 否 | 錯誤摘要 |
-| `summary` | `TEXT` | 否 | 額外摘要，可用 JSON 字串 |
+| `synced_streamers` | `INTEGER` | 否 | `collect_all` 執行前同步的 streamer 數量 |
 
 參考 SQL：
 
@@ -529,9 +541,9 @@ CREATE TABLE IF NOT EXISTS working (
     live_count INTEGER NOT NULL DEFAULT 0,
     offline_count INTEGER NOT NULL DEFAULT 0,
     snapshots_inserted INTEGER NOT NULL DEFAULT 0,
+    synced_streamers INTEGER,
     error_count INTEGER NOT NULL DEFAULT 0,
-    error_message TEXT,
-    summary TEXT
+    error_message TEXT
 );
 ```
 
