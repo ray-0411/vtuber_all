@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VTuber Live Observatory</title>
+  <base id="site-base" href="/">
+  <script>if(location.hostname.endsWith(".github.io"))document.getElementById("site-base").href="/vtuber_website/";</script>
+  <script src="site.js?v=2"></script>
+  <link rel="stylesheet" href="styles.css?v=18">
+  <link rel="stylesheet" href="navigation.css?v=6">
+  <link rel="stylesheet" href="dashboard-theme.css?v=5">
+</head>
+<body>
+  <header class="topbar">
+    <div class="nav-left">
+      <button class="menu-button" type="button" aria-label="開啟導覽選單" aria-expanded="false"><span></span></button>
+      <a class="brand" href="./"><span class="brand-mark">V</span><span>Live Observatory</span></a>
+    </div>
+    <div class="status"><i></i><span id="sync-label">正在連線資料庫…</span><span class="status-divider">·</span><a id="build-version">版本 local</a></div>
+  </header>
+  <div class="drawer-overlay"></div>
+  <aside class="nav-drawer" aria-label="網站導覽">
+    <div class="drawer-head"><strong>Explore</strong><button class="drawer-close" type="button" aria-label="關閉選單">×</button></div>
+    <a class="drawer-home" href="./"><span>直播總覽</span><span>⌂</span></a>
+    <div class="drawer-section-title">GROUP ANALYTICS</div>
+    <div class="drawer-groups"><div class="drawer-loading">開啟後載入 Group…</div></div>
+    <div class="drawer-foot">LIVE OBSERVATORY</div>
+  </aside>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">TAIWAN VTUBER LIVE INTELLIGENCE</p>
+        <h1>直播數據，<br><em>一眼掌握。</em></h1>
+        <p class="lede">從即時觀眾到歷史直播，將抓取器累積的資料整理成清楚、可探索的觀測站。</p>
+      </div>
+      <div class="orb" aria-hidden="true"><span></span></div>
+    </section>
+
+    <section class="metrics" id="metrics">
+      <article><small>目前直播</small><strong id="live-now">—</strong><span>個頻道在線</span></article>
+      <article><small>即時觀眾</small><strong id="viewers-now">—</strong><span>跨平台合計</span></article>
+      <article><small>追蹤頻道</small><strong id="streamers">—</strong><span>已啟用 VTuber</span></article>
+      <article><small>歷史直播</small><strong id="streams">—</strong><span id="platform-mix">YouTube + Twitch</span></article>
+    </section>
+
+    <section class="section">
+      <div class="section-title">
+        <div><p class="eyebrow">WEEKLY RANKING</p><h2 id="ranking-heading">上週平均觀看 Top 10</h2></div>
+        <div class="ranking-controls">
+          <select id="stream-ranking-period" aria-label="單場直播排行期間">
+            <option value="last_week">上週</option>
+            <option value="this_week">本週</option>
+            <option value="this_month">本月</option>
+          </select>
+          <div class="ranking-metric" role="group" aria-label="排行榜依據">
+            <button class="active" type="button" data-ranking-metric="average_viewers">平均觀看</button>
+            <button type="button" data-ranking-metric="peak_viewers">最高觀看</button>
+          </div>
+          <label class="ranking-unique"><input type="checkbox" id="ranking-allow-duplicates"> 允許同一人重複出現</label>
+          <span class="ranking-period" id="ranking-period">讀取統計期間…</span>
+        </div>
+      </div>
+      <div class="platform-rankings">
+        <section class="platform-ranking">
+          <h3 id="youtube-stream-ranking-title"><span class="badge youtube">YouTube</span> 上週 Top 10</h3>
+          <div class="weekly-ranking" id="youtube-ranking"><div class="empty">讀取排行榜中…</div></div>
+        </section>
+        <section class="platform-ranking">
+          <h3 id="twitch-stream-ranking-title"><span class="badge twitch">Twitch</span> 上週 Top 10</h3>
+          <div class="weekly-ranking" id="twitch-ranking"><div class="empty">讀取排行榜中…</div></div>
+        </section>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-title">
+        <div><p class="eyebrow">MONTHLY RANKING</p><h2 id="monthly-ranking-heading">月平均觀眾 Top 10</h2></div>
+        <span class="ranking-period" id="monthly-ranking-period">讀取統計期間…</span>
+      </div>
+      <div class="platform-rankings">
+        <section class="platform-ranking">
+          <h3><span class="badge youtube">YouTube</span> 月平均 Top 10</h3>
+          <div class="weekly-ranking" id="youtube-monthly-ranking"><div class="empty">讀取排行榜中…</div></div>
+        </section>
+        <section class="platform-ranking">
+          <h3><span class="badge twitch">Twitch</span> 月平均 Top 10</h3>
+          <div class="weekly-ranking" id="twitch-monthly-ranking"><div class="empty">讀取排行榜中…</div></div>
+        </section>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-title">
+        <div><p class="eyebrow">LIVE NOW</p><h2>即時直播</h2></div>
+        <div class="filters">
+          <input id="search" type="search" placeholder="搜尋頻道或標題">
+          <select id="platform"><option value="">所有平台</option><option value="youtube">YouTube</option><option value="twitch">Twitch</option></select>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>頻道</th><th>直播標題</th><th>平台</th><th>開始時間</th><th class="number">即時觀眾</th></tr></thead>
+          <tbody id="stream-table"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer><span>Live Observatory · local preview</span><span>資料來源：live_data.db</span></footer>
+  <script src="supabase-config.js?v=1"></script>
+  <script src="build-version.js?v=1"></script>
+  <script src="api-client.js?v=3"></script>
+  <script src="navigation.js?v=5"></script>
+  <script src="app.js?v=18"></script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+name: Deploy dashboard to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Write deployed commit version
+        shell: bash
+        run: |
+          short_sha="${GITHUB_SHA::7}"
+          printf 'window.DASHBOARD_BUILD = { commit: "%s" };\n' "$short_sha" > static/build-version.js
+      - name: Upload static site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: static
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
