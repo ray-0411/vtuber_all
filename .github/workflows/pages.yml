@@ -1,0 +1,67 @@
+name: Deploy dashboard to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'live_dashboard/static/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v5
+      - name: Configure deployed site
+        shell: bash
+        env:
+          PAGES_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          static = Path('live_dashboard/static')
+          base = os.environ['PAGES_BASE_PATH'].rstrip('/')
+          for name in ('site.js', '404.html'):
+              path = static / name
+              content = path.read_text(encoding='utf-8')
+              old = 'location.hostname.endsWith(".github.io") ? "/vtuber_website" : ""'
+              content = content.replace(old, json.dumps(base))
+              content = content.replace('onGitHubPages ? "/vtuber_website" : ""', json.dumps(base))
+              path.write_text(content, encoding='utf-8')
+          for name in ('app.js', 'navigation.js'):
+              path = static / name
+              content = path.read_text(encoding='utf-8').replace(
+                  'https://github.com/ray-0411/vtuber_website',
+                  os.environ['GITHUB_SERVER_URL'] + '/' + os.environ['GITHUB_REPOSITORY'])
+              path.write_text(content, encoding='utf-8')
+          build = {'commit': os.environ['GITHUB_SHA'][:7]}
+          (static / 'build-version.js').write_text(
+              'window.DASHBOARD_BUILD = ' + json.dumps(build) + ';\n', encoding='utf-8')
+          PY
+      - name: Upload static site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: live_dashboard/static
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
