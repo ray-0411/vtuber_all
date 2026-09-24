@@ -33,6 +33,26 @@ Asia/Taipei
 
 資料庫時間欄位使用 `YYYY-MM-DD HH:MM:SS` 格式。外部 API 回傳的 UTC 時間會先轉成台北時間再儲存。
 
+## YouTube 第二套驗證管線
+
+專案另外提供 WebSub webhook + YouTube Data API `videos.list` 的獨立抓取方式。
+它不會取代或改寫原本的 YouTube.js／yt-dlp collector，兩套可以同時運行並比較結果。
+新管線寫入獨立的 `youtube_api_data.db`；原管線仍使用 `live_data.db`。比較工具只會讀取舊資料庫。
+
+完整設定方式請看：
+
+- [YouTube WebSub + 官方 API 抓取設定](YOUTUBE_WEBSUB_SETUP.md)
+- [版本更新日誌](CHANGELOG.md)
+
+Windows 建議直接雙擊：
+
+```text
+open_youtube_websub_control.bat
+```
+
+第一次輸入 API key 後，控制台會用 Windows DPAPI 加密保存設定，之後可一鍵啟動
+Quick Tunnel、webhook、訂閱與官方 API scheduler。
+
 ## 本機每 5 分鐘執行
 
 如果 GitHub Actions 上的 YouTube 抓取受到限制，可以先在本機用長駐程式每 5 分鐘執行一次完整抓取。

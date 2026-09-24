@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import sqlite3
 import sys
+from contextlib import closing
 
 from streamer_tables import Streamer, read_streamers
 from time_utils import now_db_time
@@ -34,7 +35,7 @@ def find_duplicate_ids(streamers: list[Streamer]) -> dict[str, list[str]]:
 
 
 def sync_streamers(config_database: str, live_database: str) -> int:
-    with sqlite3.connect(config_database) as config_conn:
+    with closing(sqlite3.connect(config_database)) as config_conn:
         streamers = read_streamers(config_conn, enabled_only=False)
 
     duplicates = find_duplicate_ids(streamers)
@@ -45,7 +46,7 @@ def sync_streamers(config_database: str, live_database: str) -> int:
         )
         raise ValueError(f"Duplicate vtuber_id found: {details}")
 
-    with sqlite3.connect(live_database) as live_conn:
+    with closing(sqlite3.connect(live_database, timeout=30)) as live_conn:
         current_time = now_db_time()
         live_conn.execute("DELETE FROM streamer")
         live_conn.executemany(
@@ -82,6 +83,7 @@ def sync_streamers(config_database: str, live_database: str) -> int:
                 for streamer in streamers
             ],
         )
+        live_conn.commit()
 
     return len(streamers)
 

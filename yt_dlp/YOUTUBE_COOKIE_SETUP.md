@@ -52,6 +52,26 @@ $env:TWITCH_CLIENT_SECRET = "你的 Twitch Client Secret"
 
 ## 四、設定 YouTube Cookie
 
+### 方法 A：讀取插件匯出的 cookies.txt（建議）
+
+專案預設會讀取：
+
+```text
+cookie/www.youtube.com_cookies.txt
+```
+
+把插件匯出的 Netscape 格式檔案放在這個位置，就不需要設定環境變數。若要使用其他位置，再指定完整路徑：
+
+```powershell
+$env:YOUTUBE_COOKIES_FILE = "C:\Users\Ray\Downloads\cookies.txt"
+```
+
+程式也接受插件匯出的 JSON Cookie 陣列，或只包含完整 Cookie header 的文字檔。設定檔案路徑後，不需要再設定 `YOUTUBE_COOKIE`。如果兩者都有設定，檔案優先。
+
+請勿把 Cookie 檔案提交到 Git；專案已忽略常見的 `cookies.txt` 檔名。
+
+### 方法 B：直接貼上 Cookie header
+
 使用 `Read-Host`，避免 Cookie 直接出現在指令歷史中：
 
 ```powershell

@@ -15,6 +15,7 @@
 | `start_local_scheduler.bat` | 啟動本機排程器，每 5 分鐘執行一次完整收集。 | 核心 |
 | `run_collect_once.bat` | 使用與 scheduler 相同的抓取方式，只執行一輪後結束。 | 核心 |
 | `open_streamer_form.bat` | 開啟新增／修改 VTuber 的圖形表單。 | 工具 |
+| `open_youtube_websub_control.bat` | 開啟 WebSub + 官方 API 本機瀏覽器控制台。 | 第二套驗證管線 |
 | `list_working.bat` | 顯示最近 30 筆收集工作紀錄，可接額外參數。 | 工具 |
 | `working_calendar.bat` | 以日曆視窗查看收集成功、失敗與錯誤紀錄。 | 工具 |
 
@@ -23,6 +24,8 @@
 | 檔案／目錄 | 用途 | 分類與整理建議 |
 | --- | --- | --- |
 | `README.md` | 完整專案說明、資料表結構與指令範例。 | 文件，保留 |
+| `CHANGELOG.md` | 各版本新增、變更與修正紀錄。 | 文件，保留 |
+| `YOUTUBE_WEBSUB_SETUP.md` | 第二套 WebSub + YouTube Data API collector 的設定與部署說明。 | 文件，保留 |
 | `FILE_GUIDE.md` | 本文件；以整理檔案為目的的精簡索引。 | 文件，保留 |
 | `requirements.txt` | Python 相依套件，目前主要是 `yt-dlp`。 | 核心，保留 |
 | `package.json` | Node.js 相依套件設定，目前使用 `youtubei.js`。 | 核心，保留 |
@@ -30,6 +33,8 @@
 | `.gitignore` | Git 忽略規則，例如虛擬環境、快取與 `node_modules`。 | 核心，保留 |
 | `streamer_config.db` | VTuber 設定來源；依團體分成多個 `streamer_*` 表。 | **正式資料，不要隨意刪除** |
 | `live_data.db` | 正式直播資料；保存 streamer、直播、快照、目前狀態與工作紀錄。 | **正式資料，不要隨意刪除** |
+| `youtube_api_data.db` | WebSub + 官方 YouTube API 第二套管線的獨立資料庫。 | 執行後產生，不影響 `live_data.db` |
+| `streamer_audience.db` | 目前啟用 streamer 的 YouTube 訂閱數與 Twitch 追隨數；提供 `audience_merge_export` 給網頁端依 `vtuber_id` 合併。 | 資料，可由 `src/build_streamer_audience_db.py` 重建 |
 | `live_data.db.collect.lock` | 收集期間臨時產生，防止兩個 collector 同時寫入；正常結束會移除。 | 可重建；只有確認 PID 已不存在時才能清除殘留檔 |
 | `node_modules/` | `npm install` 產生的 Node.js 套件。 | 可重建；需要時可刪除後執行 `npm install` |
 | `__pycache__/`、`*.pyc` | Python 執行快取。 | 可重建，可安全清除 |
@@ -46,6 +51,16 @@
 | `src/collect_all.py` | 一輪完整工作入口；同步 streamer，依序執行 Twitch 與 YouTube collector。 | 核心 |
 | `src/youtube_collector.py` | 偵測 YouTube 直播、更新直播主資料、目前狀態與觀看人數快照。 | 核心 |
 | `src/youtube_live_ytjs.mjs` | 使用 `youtubei.js` 批次取得 YouTube 直播資訊，供 Python collector 呼叫。 | 核心 |
+| `src/youtube_webhook_server.py` | 接收 YouTube WebSub 驗證與影片事件，不影響原 collector。 | 第二套驗證管線 |
+| `src/youtube_websub_subscribe.py` | 訂閱／取消訂閱頻道並管理 WebSub lease。 | 第二套驗證管線 |
+| `src/youtube_api_collector.py` | 使用官方 `videos.list` 批次確認候選影片與同接。 | 第二套驗證管線 |
+| `src/run_youtube_api_scheduler.py` | 每 5 分鐘執行官方 API collector 的獨立 scheduler。 | 第二套驗證管線 |
+| `src/compare_youtube_collectors.py` | 並排比較原 collector 與官方 API collector 結果。 | 驗證工具 |
+| `src/youtube_websub_dashboard.py` | 管理 Quick Tunnel、webhook、訂閱、API scheduler 與比較的本機瀏覽器控制台。 | 第二套驗證管線 |
+| `src/youtube_websub_settings.py` | 使用 Windows DPAPI 加解密控制台的本機密鑰設定。 | 第二套驗證管線 |
+| `src/youtube_api_db.py` | 初始化第二套管線專用的 `youtube_api_data.db`。 | 第二套驗證管線 |
+| `src/init_youtube_api_db.py` | 手動建立第二套管線資料庫並同步 streamer。 | 初始化工具 |
+| `src/migrate_youtube_api_data.py` | 將先前誤放在舊資料庫的 WebSub/API 資料唯讀複製至新資料庫。 | 一次性 migration |
 | `src/twitch_collector.py` | 使用 Twitch Helix API 查詢直播並寫入直播狀態與快照。 | 核心 |
 
 ### Streamer 設定管理
@@ -59,6 +74,8 @@
 | `src/sync_streamers.py` | 將 `streamer_config.db` 的啟用資料同步到 `live_data.db` 的 `streamer` 表。 | 核心 |
 | `src/list_streamers.py` | 在命令列列出所有啟用的 streamer 設定。 | 工具 |
 | `src/backfill_youtube_channel_ids.py` | 為設定表中缺少 channel ID 的 YouTube URL 補抓 `UC...` ID。 | 維護工具 |
+| `src/build_streamer_audience_db.py` | 由正式 streamer 清單與既存統計建立 `streamer_audience.db`，並透過 Twitch Helix API 補抓缺少的追隨數。 | 維護／匯出工具 |
+| `src/fetch_audience_avatars.py` | 抓取 YouTube 頻道頭像 URL 並寫入 `streamer_audience.db`；預設只補空值，`--refresh` 可全部更新。 | 維護／匯出工具 |
 | `src/streamer_tables.py` | 團體表名稱驗證、Streamer 資料模型與跨表讀取共用邏輯。 | 核心共用模組 |
 
 ### 資料庫初始化與 migration

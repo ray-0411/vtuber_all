@@ -1,6 +1,8 @@
 __pycache__/
 *.pyc
 .env
+cookies*.txt
+*cookies.txt
 .venv/
 venv/
 node_modules/
@@ -8,3 +10,4 @@ backups/
 import_previews/
 .tmp_*/
 *.collect.lock
+.local/

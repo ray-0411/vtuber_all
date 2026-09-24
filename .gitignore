@@ -1,0 +1,30 @@
+# Local migration safety copies (never publish).
+/.migration-work/
+/.migration-backup/
+/db_backup/
+/sql_temp/
+/新增 文字文件.txt
+
+__pycache__/
+*.py[cod]
+node_modules/
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+cookie/
+cookies*.txt
+*cookies.txt
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.db.tmp
+*.collect.lock
+.local/
+.tmp_*/
+backups/
+import_previews/
+.DS_Store
+Thumbs.db

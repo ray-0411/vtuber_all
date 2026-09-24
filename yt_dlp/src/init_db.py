@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from migrate_stream_titles import migrate_stream_titles
@@ -69,7 +70,7 @@ def init_core_tables(database: str) -> list[str]:
     sql_dir = project_root() / "sql_init"
     executed: list[str] = []
 
-    with sqlite3.connect(database) as conn:
+    with closing(sqlite3.connect(database)) as conn:
         conn.execute("PRAGMA foreign_keys = ON")
         for file_name in CORE_SQL_FILES:
             run_sql_file(conn, sql_dir / file_name)
@@ -78,6 +79,7 @@ def init_core_tables(database: str) -> list[str]:
         migrate_stream_titles(conn)
         migrate_stream_categories(conn)
         migrate_stream_tags(conn)
+        conn.commit()
 
     return executed
 

@@ -3,6 +3,7 @@ import {
   TransformStream,
   WritableStream,
 } from 'node:stream/web';
+import { loadYoutubeCookie } from './youtube_cookie.mjs';
 
 if (!globalThis.ReadableStream) {
   globalThis.ReadableStream = ReadableStream;
@@ -314,9 +315,9 @@ async function main() {
   const streamers = JSON.parse(input || '[]');
   let finished = 0;
   const { Innertube } = await import('youtubei.js');
-  const cookie = (process.env.YOUTUBE_COOKIE ?? '').trim();
+  const { cookie, source: cookieSource } = await loadYoutubeCookie();
   progressLog(
-    `[youtube] authentication=${cookie ? 'cookie' : 'anonymous'}`
+    `[youtube] authentication=${cookie ? 'cookie' : 'anonymous'} source=${cookieSource}`
   );
   progressLog(
     `[youtube] concurrency=${CONCURRENCY} request_delay=${REQUEST_DELAY_MIN_MS}-${REQUEST_DELAY_MAX_MS}ms`

@@ -12,11 +12,22 @@
 
 ### 新增
 
-- 尚無。
+- 新增獨立的 YouTube WebSub webhook server。
+- 新增 WebSub 頻道訂閱、驗證狀態與 lease 到期管理。
+- 新增 YouTube Data API `videos.list` 50 支一批的候選影片 collector。
+- 新增官方 API 專用候選、快照與目前直播狀態資料表。
+- WebSub／官方 API 管線改用獨立的 `youtube_api_data.db`；比較時只讀取原本的 `live_data.db`。
+- 新增獨立的每 5 分鐘官方 API scheduler。
+- 新增原 collector 與官方 API collector 的結果比較工具。
+- 新增 WebSub + 官方 API 本機與 production 設定文件。
+- 新增 YouTube WebSub + 官方 API 本機瀏覽器控制台與雙擊啟動檔。
+- 新增 Windows DPAPI 加密設定保存，避免每次啟動重複輸入密鑰。
+- 本機瀏覽器控制台可自動啟動 Quick Tunnel、取得 callback URL、訂閱頻道、執行
+  scheduler 及比較新舊結果。
 
 ### 變更
 
-- 尚無。
+- 原本 YouTube.js／yt-dlp collector 維持原樣；新方法使用獨立程式與資料表。
 
 ### 修正
 
@@ -66,4 +77,3 @@
 - 支援本機每 5 分鐘執行的 scheduler。
 - 支援 VTuber 團體、頻道設定與 SQLite 資料庫管理。
 - 支援工作執行紀錄與工作日曆檢視工具。
-
