@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'live_dashboard/static/**'
+      - 'website/static/**'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -39,7 +39,7 @@ jobs:
           import os
           from pathlib import Path
 
-          static = Path('live_dashboard/static')
+          static = Path('website/static')
           base = os.environ['PAGES_BASE_PATH'].rstrip('/')
           for name in ('site.js', '404.html'):
               path = static / name
@@ -61,7 +61,7 @@ jobs:
       - name: Upload static site
         uses: actions/upload-pages-artifact@v3
         with:
-          path: live_dashboard/static
+          path: website/static
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4

@@ -1,6 +1,0 @@
-.env.supabase.local
-data/*.db
-data/*.db.tmp
-data/merge_report.json
-data/periodic_upload_state.json
-!data/.gitkeep

@@ -28,3 +28,15 @@ backups/
 import_previews/
 .DS_Store
 Thumbs.db
+
+# Reorganized private/runtime data and retained originals.
+/database/**
+!/database/README.md
+/other/local/
+/other/log-data/
+/other/archive/
+/other/temp/
+/other/reorganization/
+/log/data/
+/log/publish/
+*.log

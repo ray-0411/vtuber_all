@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: collect-live-status
@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: yt_dlp
+        working-directory: catcher
 
     steps:
       - name: Checkout
@@ -46,6 +46,7 @@ jobs:
 
       - name: Initialize databases
         run: |
+          mkdir -p ../database/main
           python src/init_db.py
           python src/init_streamer_config.py
 
@@ -56,16 +57,11 @@ jobs:
           YOUTUBE_COLLECTOR_DEBUG: "1"
         run: python src/collect_all.py
 
-      - name: Commit database changes
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add live_data.db streamer_config.db
-          git status --short
-          if git diff --cached --quiet; then
-            echo "No database changes to commit."
-          else
-            git commit -m "Update live status database"
-            git pull --rebase --autostash
-            git push
-          fi
+      - name: Save collected databases as an Actions artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: collected-databases
+          path: |
+            database/main/live_data.db
+            database/main/streamer_config.db
+          retention-days: 7
