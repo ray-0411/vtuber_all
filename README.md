@@ -1,4 +1,4 @@
-[GitHub Pages](https://ray-0411.github.io/vtuber_all/)
+Vtuber資料網站：[https://ray-0411.github.io/vtuber_all/](https://ray-0411.github.io/vtuber_all/)
 
 # VTuber 採集與直播網站
 
