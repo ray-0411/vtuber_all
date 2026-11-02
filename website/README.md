@@ -7,10 +7,10 @@ Group 與成員分析、直播月曆及單場觀看人數變化。
 
 ## 公開網站
 
-**[開啟 VTuber Live Observatory](https://ray-0411.github.io/vtuber_website/)**
+**[開啟 VTuber Live Observatory](https://ray0411.win)**
 
-網站部署於 GitHub Pages，資料由 Supabase 的唯讀 API 提供。網站不需要登入，
-使用手機或電腦瀏覽器皆可開啟。
+網站部署於 GitHub Pages，資料由你電腦上執行的唯讀 API 提供。網站不需要登入，
+使用手機或電腦瀏覽器皆可開啟；電腦或網路中斷時，資料查詢會暫時無法使用。
 
 ## 網站功能
 
@@ -33,34 +33,32 @@ Group 與成員分析、直播月曆及單場觀看人數變化。
 ```text
 抓取器 SQLite
    ↓ 合併及建立分析快取
-Supabase PostgreSQL
-   ↓ 受控唯讀 RPC
+本機發布 SQLite
+   ↓ 本機唯讀 API（Cloudflare Tunnel HTTPS）
 GitHub Pages 靜態網站
 ```
 
-- `dashboard`、`analytics` 原始資料表啟用 Row Level Security。
-- 匿名訪客無法直接讀取原始資料表，只能執行公開的唯讀 RPC。
-- GitHub Pages 前端僅使用可公開的 Supabase publishable key。
-- 資料庫密碼、secret key 與本機資料庫不會提交到 Git。
+- API 只開放網站使用的 GET 查詢，SQLite 以唯讀方式開啟。
+- API 預設只接受 GitHub Pages 網站與本機預覽的瀏覽器來源。
+- 不公開 SQLite 檔案，也不開放資料庫連接埠或寫入 API。
+- 本機資料庫不提交到 Git。
 
 ## 維護資料
 
-一般更新建議在抓取器電腦使用
-[`collector_supabase_tool`](../tools/publish/README.md)：
+抓取器完成更新後，雙擊 `tools/publish/update_local_dashboard.bat` 產生網站資料庫：
 
-1. 第一次使用先執行 `setup.bat`。
-2. 抓取器完成資料更新後執行 `update_and_upload.bat`。
-3. 工具會合併資料庫、重建分析快取、上傳 Supabase、重建全站排行榜快取並核對筆數。
-4. 上傳完成後，公開網站重新整理即可取得新資料，不需要重新部署。
+1. 工具會從目前的 `live_data.db` 和 `streamer_audience.db` 建立合併發布資料。
+2. 工具會重建分析快取；發布產物存於 `database/published/`。
+3. 本機 API 讀取發布產物，網站重新整理即可取得新資料，不需要重新部署。
 
-Dashboard 專案內也可以分開執行：
+若仍需使用舊的 Supabase 同步工具，可分開執行：
 
 ```powershell
 refresh_merged_data.bat
 upload_to_supabase.bat
 ```
 
-Supabase 同步使用 Git 忽略的 `.env.supabase.local`：
+Supabase 同步使用 Git 忽略的 `.env.supabase.local`；切換本機 API 後，網站查詢不依賴這個同步。
 
 ```dotenv
 SUPABASE_DB_URL=postgresql://...
@@ -68,29 +66,27 @@ SUPABASE_DB_URL=postgresql://...
 
 此連線字串包含資料庫密碼，不可上傳或分享。
 
-## 本機預覽
+## 啟動本機 API
 
 需要 Python 3，並先準備：
 
-- `data/merged_live_data.db`
-- `data/merged_analytics_cache.db`
+- `database/published/merged_live_data.db`
+- `database/published/merged_analytics_cache.db`
 
 啟動方式：
 
 ```powershell
-python app.py
+website/start_local_api.bat
 ```
 
-或雙擊：
+或在 PowerShell 執行 `python website/app.py`。本機預覽可開啟 <http://127.0.0.1:8000>。
+API 預設只綁定本機回環位址；外網使用時，
+應以 Cloudflare Tunnel 將公開 HTTPS 網址導向 `http://127.0.0.1:8000`，不要把 API
+改綁到所有網路介面，也不要在路由器公開 SQLite 或 SQL 連接埠。
 
-```text
-start_dashboard.bat
-```
-
-接著開啟 <http://127.0.0.1:8000>。
-
-前端的 `static/supabase-config.js` 若已填入 Project URL 與 publishable key，會直接
-讀取 Supabase；將兩個值留空則使用本機 Python `/api`。
+本專案預計以 `ray0411.win` 提供網站，並以 `api.ray0411.win` 提供 API。Cloudflare
+Tunnel 與 GitHub Pages DNS 設定完成後，電腦需保持開機、
+連網且不進入睡眠；否則公開網站會暫時無法讀取資料。
 
 ## 主要目錄
 

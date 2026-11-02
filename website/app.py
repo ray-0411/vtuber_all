@@ -13,8 +13,8 @@ from urllib.parse import parse_qs, urlparse
 
 
 ROOT = Path(__file__).resolve().parent
-DEFAULT_DATABASE = ROOT.parent / "database" / "website" / "merged_live_data.db"
-DEFAULT_ANALYTICS_CACHE = ROOT.parent / "database" / "website" / "merged_analytics_cache.db"
+DEFAULT_DATABASE = ROOT.parent / "database" / "published" / "merged_live_data.db"
+DEFAULT_ANALYTICS_CACHE = ROOT.parent / "database" / "published" / "merged_analytics_cache.db"
 STATIC_DIR = ROOT / "static"
 
 
@@ -1038,6 +1038,13 @@ class DashboardRepository:
 
 class DashboardHandler(BaseHTTPRequestHandler):
     repository: DashboardRepository
+    allowed_origins = {
+        "https://ray0411.win",
+        "https://www.ray0411.win",
+        "https://ray-0411.github.io",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    }
 
     def send_json(self, data, status=200):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
@@ -1045,8 +1052,23 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        origin = self.headers.get("Origin")
+        if origin in self.allowed_origins:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
         self.end_headers()
         self.wfile.write(body)
+
+    def do_OPTIONS(self):
+        origin = self.headers.get("Origin")
+        self.send_response(204)
+        if origin in self.allowed_origins:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.send_header("Vary", "Origin")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -1198,6 +1220,14 @@ def main():
     )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument(
+        "--allowed-origins",
+        default=os.environ.get(
+            "DASHBOARD_ALLOWED_ORIGINS",
+            "https://ray0411.win,https://www.ray0411.win,https://ray-0411.github.io,http://localhost:8000,http://127.0.0.1:8000",
+        ),
+        help="Comma-separated browser origins allowed to read the API",
+    )
     args = parser.parse_args()
 
     database = Path(args.database).resolve()
@@ -1210,6 +1240,11 @@ def main():
             "Run: python scripts/build_analytics_cache.py"
         )
     DashboardHandler.repository = DashboardRepository(database, analytics_cache)
+    DashboardHandler.allowed_origins = {
+        origin.strip()
+        for origin in args.allowed_origins.split(",")
+        if origin.strip()
+    }
     server = ThreadingHTTPServer((args.host, args.port), DashboardHandler)
     print(f"Dashboard: http://{args.host}:{args.port}")
     print(f"Database:  {database} (read-only)")
