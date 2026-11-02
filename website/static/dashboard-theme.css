@@ -24,7 +24,7 @@ body{
 }
 .brand{color:var(--ink);font-size:13px;letter-spacing:.02em}.brand-mark{border-radius:8px;background:linear-gradient(145deg,var(--blue),var(--purple));color:#fff;box-shadow:0 0 22px rgba(90,140,255,.25)}
 .menu-button{border-radius:8px;background:#111925;border-color:#273247;color:#aeb9cc}.menu-button:hover{background:#172131;border-color:var(--blue);color:#fff}
-.status{background:#0e181a;border:1px solid #1b3b36;border-radius:20px;padding:7px 12px;color:#8ab2aa}.status i{background:var(--green);box-shadow:0 0 10px var(--green)}
+.status{background:#0e181a;border:1px solid #1b3b36;border-radius:20px;padding:7px 12px;color:#8ab2aa}.status i{background:var(--green);box-shadow:0 0 10px var(--green)}.status.db-read-error{border-color:rgba(223,79,95,.38);color:#c77780}.status.db-read-error i{background:#df4f5f;box-shadow:0 0 10px rgba(223,79,95,.5)}
 main{width:min(1360px,94vw)}
 .eyebrow{color:#6e8fff;font-family:"Cascadia Code",Consolas,monospace;font-size:9px;letter-spacing:.16em}
 .hero{min-height:310px;grid-template-columns:1fr 260px;border-color:var(--line);padding:38px 0}
@@ -90,7 +90,7 @@ body{
 .topbar{background:rgba(255,255,255,.9);box-shadow:0 1px 0 rgba(24,34,48,.03)}
 .brand{color:var(--ink)}.brand-mark{color:#fff}
 .menu-button{background:#fff;border-color:#d7dfeb;color:#536176}.menu-button:hover{background:#f5f8fd;border-color:var(--blue);color:var(--blue)}
-.status{background:#effaf7;border-color:#ccece4;color:#397b6e}.status i{box-shadow:0 0 8px rgba(12,159,131,.35)}
+.status{background:#effaf7;border-color:#ccece4;color:#397b6e}.status i{box-shadow:0 0 8px rgba(12,159,131,.35)}.status.db-read-error{background:#fff3f3;border-color:#f2c6ca;color:#a43e4a}.status.db-read-error i{background:#d94050;box-shadow:0 0 8px rgba(217,64,80,.35)}
 .hero h1{color:var(--ink)}.hero h1 em{color:var(--green)}.lede{color:var(--muted)}
 .orb{background:linear-gradient(145deg,#fff,#edf3fb);border-color:#d4deec;box-shadow:inset 0 0 45px rgba(65,105,225,.06),var(--shadow)}
 .orb:before{border-color:rgba(65,105,225,.25)}.orb:after{color:var(--green)}

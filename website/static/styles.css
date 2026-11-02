@@ -63,6 +63,10 @@ body {
   background: #43bc75;
   box-shadow: 0 0 0 4px rgba(67, 188, 117, .12);
 }
+.status.db-read-error i {
+  background: #df4f5f;
+  box-shadow: 0 0 0 4px rgba(223, 79, 95, .14);
+}
 .status-divider { opacity: .45; }
 .status a { color: inherit; font: 11px "Cascadia Code", Consolas, monospace; text-decoration: none; }
 .status a[href]:hover { color: var(--blue); text-decoration: underline; }

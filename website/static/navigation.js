@@ -29,13 +29,23 @@
     } else {
       topbar.append(status);
     }
+    const syncLabel = status.querySelector(".global-sync-label");
+    const setReadState = (state) => {
+      status.classList.toggle("db-read-ok", state === "ok");
+      status.classList.toggle("db-read-error", state === "error");
+    };
     dashboardFetch("/api/overview").then(response => {
       if (!response.ok) throw new Error("讀取失敗");
       return response.json();
     }).then(data => {
-      status.querySelector(".global-sync-label").textContent = `最近更新 ${dashboardDateTime(data.last_checked_at)}`;
+      setReadState("ok");
+      const checkedAt = dashboardDateTime(data.last_checked_at);
+      syncLabel.textContent = checkedAt === "—"
+        ? "資料庫讀取成功 · 更新時間未知"
+        : `資料庫讀取成功 · 資料截至 ${checkedAt}`;
     }).catch(() => {
-      status.querySelector(".global-sync-label").textContent = "更新時間讀取失敗";
+      setReadState("error");
+      syncLabel.textContent = "資料庫讀取失敗";
     });
   }
 
