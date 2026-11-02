@@ -32,6 +32,8 @@
 
 ### 變更
 
+- 本機 `.main_catcher.bat` 每輪採集完成後自動建立網站 API 快照並重建分析快取。
+- API 快照改用版本化檔名，完成後切換版本指標，避免取代 API 正在讀取的 SQLite 檔案。
 - 原本 YouTube.js／yt-dlp collector 維持原樣；新方法使用獨立程式與資料表。
 
 ### 修正

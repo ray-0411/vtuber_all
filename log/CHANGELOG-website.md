@@ -16,6 +16,9 @@
 
 ### Fixed
 
+- Move the local API launcher to `tools/website/.start_local_api.bat`.
+- Read versioned database and analytics snapshots through `database/published/current_snapshot.json`.
+- Close read-only SQLite connections after each API request so the publisher can safely swap snapshots.
 - Use a plain white background and black text for the Rankings drawer item.
 - Move the calendar-period selector to the single-stream ranking while restoring
   the lower section to the previous complete month's member-average ranking.
@@ -25,6 +28,7 @@
 
 ### Added
 
+- Show database update time and API response time in the top bar, using clock time for recent values and “over one day” for older values.
 - Add an expandable Group filter to the member Rankings page, defaulting to
   all members.
 - Add an editable About page and a persistent link at the bottom of the left

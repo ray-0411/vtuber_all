@@ -6,6 +6,7 @@ import json
 import mimetypes
 import os
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -104,19 +105,45 @@ def build_time_analytics(stream_rows):
 
 
 class DashboardRepository:
-    def __init__(self, database: Path, analytics_cache: Path | None = None):
+    def __init__(
+        self,
+        database: Path,
+        analytics_cache: Path | None = None,
+        snapshot_manifest: Path | None = None,
+    ):
         self.database = database
         self.analytics_cache = analytics_cache
+        self.snapshot_manifest = snapshot_manifest
+
+    def active_snapshot_paths(self):
+        if self.snapshot_manifest is None:
+            return self.database, self.analytics_cache
+        try:
+            manifest = json.loads(self.snapshot_manifest.read_text(encoding="utf-8"))
+            database_name = manifest["database"]
+            cache_name = manifest["analytics_cache"]
+            if Path(database_name).name != database_name:
+                raise ValueError("Invalid database filename in snapshot manifest")
+            if Path(cache_name).name != cache_name:
+                raise ValueError("Invalid cache filename in snapshot manifest")
+            database = self.snapshot_manifest.parent / database_name
+            cache = self.snapshot_manifest.parent / cache_name
+            if database.is_file() and cache.is_file():
+                return database, cache
+        except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+            pass
+        return self.database, self.analytics_cache
 
     def connect(self):
+        database, analytics_cache = self.active_snapshot_paths()
         connection = sqlite3.connect(
-            f"file:{self.database.as_posix()}?mode=ro", uri=True, timeout=5
+            f"file:{database.as_posix()}?mode=ro", uri=True, timeout=5
         )
         connection.row_factory = sqlite3.Row
-        if self.analytics_cache is not None:
+        if analytics_cache is not None:
             connection.execute(
                 "ATTACH DATABASE ? AS analytics",
-                (f"file:{self.analytics_cache.as_posix()}?mode=ro",),
+                (f"file:{analytics_cache.as_posix()}?mode=ro",),
             )
         connection.execute("PRAGMA query_only = ON")
         return connection
@@ -126,7 +153,7 @@ class DashboardRepository:
         return {key: repair_text(value) for key, value in dict(row).items()}
 
     def overview(self):
-        with self.connect() as db:
+        with closing(self.connect()) as db:
             counts = db.execute(
                 """
                 SELECT
@@ -151,11 +178,14 @@ class DashboardRepository:
         return {
             **dict(counts),
             "last_checked_at": latest["last_checked_at"],
+            "api_fetched_at": datetime.now(
+                timezone(timedelta(hours=8))
+            ).isoformat(timespec="seconds"),
             "platforms": [dict(row) for row in platforms],
         }
 
     def live(self):
-        with self.connect() as db:
+        with closing(self.connect()) as db:
             rows = db.execute(
                 """
                 SELECT cls.vtuber_id, s.name, s.group_name, cls.platform,
@@ -190,7 +220,7 @@ class DashboardRepository:
         if period not in periods:
             raise ValueError("Invalid ranking period")
         period_start, period_end_exclusive = periods[period]
-        with self.connect() as db:
+        with closing(self.connect()) as db:
             rows = db.execute(
                 """
                 SELECT stats.vtuber_id, stats.member_name AS name, stats.group_name,
@@ -259,7 +289,7 @@ class DashboardRepository:
         today = datetime.now().date()
         month_end = today.replace(day=1)
         month_start = (month_end - timedelta(days=1)).replace(day=1)
-        with self.connect() as db:
+        with closing(self.connect()) as db:
             rows = db.execute(
                 """
                 SELECT stats.vtuber_id, stats.member_name AS name,
@@ -306,7 +336,7 @@ class DashboardRepository:
             raise ValueError("Invalid ranking selection")
         if period not in period_modifiers:
             raise ValueError("Invalid analysis period")
-        with self.connect() as db:
+        with closing(self.connect()) as db:
             cutoff = None
             if period_modifiers[period] is not None:
                 cutoff = db.execute(
@@ -374,7 +404,7 @@ class DashboardRepository:
         }
         if period not in period_modifiers:
             raise ValueError("Invalid analysis period")
-        with self.connect() as db:
+        with closing(self.connect()) as db:
             cutoff = None
             if period_modifiers[period] is not None:
                 cutoff = db.execute(
@@ -452,7 +482,7 @@ class DashboardRepository:
         return [self._clean(row) for row in rows]
 
     def groups(self):
-        with self.connect() as db:
+        with closing(self.connect()) as db:
             has_group_settings = db.execute(
                 """
                 SELECT COUNT(*) FROM sqlite_master
@@ -520,7 +550,7 @@ class DashboardRepository:
         }
         if period not in period_modifiers:
             raise ValueError("Invalid analysis period")
-        with self.connect() as db:
+        with closing(self.connect()) as db:
             profile = db.execute(
                 """
                 SELECT s.*, COALESCE(MAX(cls.is_live), 0) AS is_live,
@@ -754,7 +784,7 @@ class DashboardRepository:
         }
 
     def stream_viewer_history(self, stream_id):
-        with self.connect() as db:
+        with closing(self.connect()) as db:
             stream = db.execute(
                 """
                 SELECT st.stream_id, st.vtuber_id, s.name, s.group_name,
@@ -787,7 +817,7 @@ class DashboardRepository:
             }
 
     def member_month_history(self, group_name, vtuber_id, month=None):
-        with self.connect() as db:
+        with closing(self.connect()) as db:
             profile = db.execute(
                 """
                 SELECT vtuber_id, name, group_name
@@ -879,7 +909,7 @@ class DashboardRepository:
         }
         if period not in period_modifiers:
             raise ValueError("Invalid analysis period")
-        with self.connect() as db:
+        with closing(self.connect()) as db:
             cutoff = None
             if period_modifiers[period] is not None:
                 cutoff = db.execute(
@@ -1239,7 +1269,15 @@ def main():
             f"Analytics cache not found: {analytics_cache}\n"
             "Run: python scripts/build_analytics_cache.py"
         )
-    DashboardHandler.repository = DashboardRepository(database, analytics_cache)
+    snapshot_manifest = None
+    if (
+        database == DEFAULT_DATABASE.resolve()
+        and analytics_cache == DEFAULT_ANALYTICS_CACHE.resolve()
+    ):
+        snapshot_manifest = database.parent / "current_snapshot.json"
+    DashboardHandler.repository = DashboardRepository(
+        database, analytics_cache, snapshot_manifest
+    )
     DashboardHandler.allowed_origins = {
         origin.strip()
         for origin in args.allowed_origins.split(",")
@@ -1247,7 +1285,7 @@ def main():
     }
     server = ThreadingHTTPServer((args.host, args.port), DashboardHandler)
     print(f"Dashboard: http://{args.host}:{args.port}")
-    print(f"Database:  {database} (read-only)")
+    print(f"Database:  {database} (read-only; version manifest: {snapshot_manifest})")
     print(f"Analytics: {analytics_cache} (read-only)")
     try:
         server.serve_forever()

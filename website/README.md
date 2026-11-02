@@ -39,17 +39,21 @@ GitHub Pages 靜態網站
 ```
 
 - API 只開放網站使用的 GET 查詢，SQLite 以唯讀方式開啟。
-- API 預設只接受 GitHub Pages 網站與本機預覽的瀏覽器來源。
+- API 預設只接受正式網站與本機預覽的瀏覽器來源。
 - 不公開 SQLite 檔案，也不開放資料庫連接埠或寫入 API。
 - 本機資料庫不提交到 Git。
 
 ## 維護資料
 
-抓取器完成更新後，雙擊 `tools/publish/update_local_dashboard.bat` 產生網站資料庫：
+使用 `tools/catcher/.main_catcher.bat` 執行本機採集排程時，每輪抓取結束會自動更新網站資料庫：
 
-1. 工具會從目前的 `live_data.db` 和 `streamer_audience.db` 建立合併發布資料。
-2. 工具會重建分析快取；發布產物存於 `database/published/`。
-3. 本機 API 讀取發布產物，網站重新整理即可取得新資料，不需要重新部署。
+1. 採集器寫入 `database/main/live_data.db`。
+2. 排程以 SQLite 備份建立具版本名稱的 API 快照，合併 `streamer_audience.db`、保留 Group 設定並重建分析快取。
+3. 兩個檔案都完成後才更新 `database/published/current_snapshot.json`；API 每次查詢都依此指標讀取同一版本。
+4. 發布資料夾最多保留最近兩組快照；舊檔若仍被 API 使用，會延後到後續發布再清理。
+
+若採集器是用其他方式執行，或只想手動更新網站副本，可雙擊
+`tools/publish/update_local_dashboard.bat`。此工具不會上傳 Supabase。
 
 若仍需使用舊的 Supabase 同步工具，可分開執行：
 
@@ -76,7 +80,7 @@ SUPABASE_DB_URL=postgresql://...
 啟動方式：
 
 ```powershell
-website/start_local_api.bat
+tools/website/.start_local_api.bat
 ```
 
 或在 PowerShell 執行 `python website/app.py`。本機預覽可開啟 <http://127.0.0.1:8000>。

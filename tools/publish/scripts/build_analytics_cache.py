@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import os
 import sqlite3
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -18,6 +19,18 @@ def parse_args() -> argparse.Namespace:
         "--output", type=Path, default=data_dir / "merged_analytics_cache.db"
     )
     return parser.parse_args()
+
+
+def replace_when_readers_finish(temporary: Path, output: Path) -> None:
+    deadline = time.monotonic() + 30
+    while True:
+        try:
+            os.replace(temporary, output)
+            return
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.25)
 
 
 def parse_database_time(value: str) -> datetime:
@@ -221,7 +234,7 @@ def main() -> int:
     else:
         db.close()
 
-    os.replace(temporary, output)
+    replace_when_readers_finish(temporary, output)
     print(f"Analytics cache: {output}")
     print(f"Streams cached: {metadata['stream_count']}")
     print(f"Active intervals: {len(intervals)}")

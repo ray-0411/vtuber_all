@@ -23,7 +23,7 @@ echo Project: %CD%
 echo Timezone: Asia/Taipei
 echo.
 
-fnm exec --using 20.20.1 python src\run_local_scheduler.py --once --timezone Asia/Taipei --collection-timeout-seconds 240
+fnm exec --using 20.20.1 python src\run_local_scheduler.py --once --timezone Asia/Taipei --collection-timeout-seconds 240 --publish-website
 
 echo.
 echo One-time collection finished.

@@ -53,4 +53,10 @@
     const parts = taipeiParts(value);
     return parts ? `${parts.hour}:${parts.minute}:${parts.second}` : "—";
   };
+  window.dashboardTopbarTime = value => {
+    const parsed = dashboardParseTime(value);
+    if (!parsed) return "\u2014";
+    if (Date.now() - parsed.valueOf() >= 24 * 60 * 60 * 1000) return "\u8d85\u904e\u4e00\u5929";
+    return dashboardClockTime(value);
+  };
 })();

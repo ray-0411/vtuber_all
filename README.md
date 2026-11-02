@@ -17,8 +17,8 @@ Vtuber資料網站：[https://ray0411.win](https://ray0411.win)
 
 ## 常用入口
 
-- `tools/catcher/.main_catcher.bat`：採集排程。
-- `tools/catcher/run_collect_once.bat`：採集一輪。
+- `tools/catcher/.main_catcher.bat`：每 5 分鐘採集，完成後同步更新網站 API 快照與分析快取。
+- `tools/catcher/run_collect_once.bat`：採集一輪並更新網站 API 快照。
 - `tools/catcher/working_viewer/list_working.bat`：查看最近工作狀態。
 - `tools/catcher/working_viewer/working_calendar.bat`：工作日曆。
 - `tools/catcher/streamer_manager/open_streamer_form.bat`：人員管理。

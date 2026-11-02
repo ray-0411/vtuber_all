@@ -253,7 +253,9 @@ footer {
 
 @media (max-width: 480px) {
   .topbar { padding: 0 18px; }
-  .status span { display: none; }
+  .status { display: grid; grid-template-columns: 1fr; gap: 1px; justify-items: end; }
+  .status i, .status .status-divider, .status #build-version { display: none; }
+  .status .status-time { display: block; font-size: 9px; white-space: nowrap; }
   main { width: 92vw; }
   .hero h1 { font-size: 48px; }
   .metrics { grid-template-columns: 1fr; }

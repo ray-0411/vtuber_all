@@ -24,7 +24,7 @@ echo Timezone: Asia/Taipei
 echo Schedule: every hour at minute 00, 05, 10, 15, ...
 echo.
 
-fnm exec --using 20.20.1 python src\run_local_scheduler.py --interval-seconds 300 --timezone Asia/Taipei --collection-timeout-seconds 240
+fnm exec --using 20.20.1 python src\run_local_scheduler.py --interval-seconds 300 --timezone Asia/Taipei --collection-timeout-seconds 240 --publish-website
 
 echo.
 echo Scheduler stopped.

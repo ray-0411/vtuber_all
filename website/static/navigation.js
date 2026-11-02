@@ -13,7 +13,7 @@
     const status = document.createElement("div");
     const commit = window.DASHBOARD_BUILD?.commit || "local";
     status.className = "status global-status";
-    status.innerHTML = `<i></i><span class="global-sync-label">正在連線資料庫…</span><span class="status-divider">·</span><a class="global-build-version">版本 ${commit}</a>`;
+    status.innerHTML = `<i></i><span class="global-db-time status-time">\u8cc7\u6599\u5eab\u8b80\u53d6\u4e2d</span><span class="status-divider">&middot;</span><span class="global-api-time status-time">API\u53d6\u5f97\u4e2d</span><span class="status-divider">&middot;</span><a class="global-build-version">\u7248\u672c ${commit}</a>`;
     const versionLink = status.querySelector(".global-build-version");
     if (commit !== "local") {
       versionLink.href = `https://github.com/ray-0411/vtuber_website/commit/${encodeURIComponent(commit)}`;
@@ -29,23 +29,23 @@
     } else {
       topbar.append(status);
     }
-    const syncLabel = status.querySelector(".global-sync-label");
+    const databaseTime = status.querySelector(".global-db-time");
+    const apiTime = status.querySelector(".global-api-time");
     const setReadState = (state) => {
       status.classList.toggle("db-read-ok", state === "ok");
       status.classList.toggle("db-read-error", state === "error");
     };
     dashboardFetch("/api/overview").then(response => {
-      if (!response.ok) throw new Error("讀取失敗");
+      if (!response.ok) throw new Error("\u8b80\u53d6\u5931\u6557");
       return response.json();
     }).then(data => {
       setReadState("ok");
-      const checkedAt = dashboardDateTime(data.last_checked_at);
-      syncLabel.textContent = checkedAt === "—"
-        ? "資料庫讀取成功 · 更新時間未知"
-        : `資料庫讀取成功 · 資料截至 ${checkedAt}`;
+      databaseTime.textContent = `\u8cc7\u6599\u5eab ${dashboardTopbarTime(data.last_checked_at)}`;
+      apiTime.textContent = `API\u53d6\u5f97 ${dashboardTopbarTime(data.api_fetched_at)}`;
     }).catch(() => {
       setReadState("error");
-      syncLabel.textContent = "資料庫讀取失敗";
+      databaseTime.textContent = "\u8cc7\u6599\u5eab\u8b80\u53d6\u5931\u6557";
+      apiTime.textContent = "API\u53d6\u5f97\u5931\u6557";
     });
   }
 

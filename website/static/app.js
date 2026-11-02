@@ -31,8 +31,7 @@ function equalizeRankingRowHeights() {
 
 async function loadOverview() {
   const data = await getJSON("/api/overview");
-  const checkedAt = dashboardDateTime(data.last_checked_at);
-  const status = $("#sync-label").closest(".status");
+  const status = $(".status");
   status.classList.add("db-read-ok");
   status.classList.remove("db-read-error");
   $("#live-now").textContent = fmt.format(data.live_now);
@@ -40,9 +39,8 @@ async function loadOverview() {
   $("#streamers").textContent = fmt.format(data.streamers);
   $("#streams").textContent = fmt.format(data.streams);
   $("#platform-mix").textContent = data.platforms.map(x => `${x.platform} ${fmt.format(x.count)}`).join(" · ");
-  $("#sync-label").textContent = checkedAt === "—"
-    ? "資料庫讀取成功 · 更新時間未知"
-    : `資料庫讀取成功 · 資料截至 ${checkedAt}`;
+  $("#database-time").textContent = `\u8cc7\u6599\u5eab ${dashboardTopbarTime(data.last_checked_at)}`;
+  $("#api-time").textContent = `API\u53d6\u5f97 ${dashboardTopbarTime(data.api_fetched_at)}`;
 }
 
 async function loadWeeklyRanking() {
@@ -165,10 +163,11 @@ $("#stream-ranking-period").addEventListener("change", () => {
 });
 
 loadOverview().catch(() => {
-  const status = $("#sync-label").closest(".status");
+  const status = $(".status");
   status.classList.add("db-read-error");
   status.classList.remove("db-read-ok");
-  $("#sync-label").textContent = "資料庫讀取失敗";
+  $("#database-time").textContent = "\u8cc7\u6599\u5eab\u8b80\u53d6\u5931\u6557";
+  $("#api-time").textContent = "API\u53d6\u5f97\u5931\u6557";
 });
 Promise.all([loadWeeklyRanking(), loadMonthlyAverageRanking(), loadStreams()])
   .catch(error => console.error("Dashboard sections failed to load:", error));

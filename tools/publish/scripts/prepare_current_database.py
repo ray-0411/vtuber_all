@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import os
 import sqlite3
+import time
 from pathlib import Path
 
 
@@ -16,7 +17,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--current", type=Path, default=root / "live_data.db")
     parser.add_argument("--audience", type=Path, default=root / "streamer_audience.db")
     parser.add_argument("--output", type=Path, default=tool.parents[1] / "database/published" / "merged_live_data.db")
+    parser.add_argument(
+        "--preserve-from",
+        type=Path,
+        help="Previous published database whose group settings should be retained",
+    )
     return parser.parse_args()
+
+
+def replace_when_readers_finish(temporary: Path, output: Path) -> None:
+    deadline = time.monotonic() + 30
+    while True:
+        try:
+            os.replace(temporary, output)
+            return
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.25)
 
 
 def table_sql(connection: sqlite3.Connection, table: str) -> str | None:
@@ -109,10 +127,11 @@ def main() -> int:
 
     # Most collector databases do not have this table, but retain it when they
     # do. A prior publish copy takes precedence so edits survive every rebuild.
-    preserved_by_group = {
-        row[0]: row for row in read_group_settings(current)
-    }
-    preserved_by_group.update({row[0]: row for row in read_group_settings(output)})
+    preserve_from = args.preserve_from.resolve() if args.preserve_from else output
+    preserved_by_group = {row[0]: row for row in read_group_settings(current)}
+    preserved_by_group.update(
+        {row[0]: row for row in read_group_settings(preserve_from)}
+    )
     preserved_settings = list(preserved_by_group.values())
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_name(output.name + ".tmp")
@@ -139,7 +158,7 @@ def main() -> int:
         target.close()
         source.close()
 
-    os.replace(temporary, output)
+    replace_when_readers_finish(temporary, output)
     print(f"Prepared database: {output}")
     print(f"Audience rows: {audience_count}")
     print(f"Group settings: {group_count}")

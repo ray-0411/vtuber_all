@@ -75,6 +75,12 @@ $env:YTJS_REQUEST_DELAY_MAX_MS = "600"
 python src/run_local_scheduler.py
 ```
 
+若希望網站 API 專用資料庫在每輪抓取完成後自動更新，使用：
+
+```powershell
+python src/run_local_scheduler.py --publish-website
+```
+
 也可以直接執行專案根目錄的 bat 檔：
 
 ```powershell
@@ -98,6 +104,8 @@ python src/run_local_scheduler.py
 - 固定使用 `Asia/Taipei` 顯示時間。
 - 對齊每小時的 `00`、`05`、`10`、`15` 分執行。
 - 每輪會呼叫 `collect_all.py` 的相同流程。
+- 使用 `--publish-website` 時，每輪抓取結束後會以 SQLite 備份建立新的 API 專用資料庫與分析快取，
+  完成後更新 `database/published/current_snapshot.json`；舊快照最多保留兩組，不會上傳 Supabase。
 - 每輪結束會列出目前 YouTube / Twitch 各有幾個直播，以及直播清單。
 - 會先確認 `live_data.db` 與 `streamer_config.db` 的必要資料表存在。
 - 按 `Ctrl+C` 可以停止。
@@ -105,7 +113,7 @@ python src/run_local_scheduler.py
 測試只跑一次：
 
 ```powershell
-python src/run_local_scheduler.py --once
+python src/run_local_scheduler.py --once --publish-website
 ```
 
 修改執行間隔：

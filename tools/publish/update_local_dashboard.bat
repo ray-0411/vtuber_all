@@ -23,13 +23,7 @@ if not exist "%AUDIENCE_DB%" (
   goto :failed
 )
 
-python scripts\prepare_current_database.py --current "%CURRENT_DB%" --audience "%AUDIENCE_DB%" --output ..\..\database\published\merged_live_data.db
-if errorlevel 1 goto :failed
-
-python scripts\create_group_settings.py --database ..\..\database\published\merged_live_data.db
-if errorlevel 1 goto :failed
-
-python scripts\build_analytics_cache.py --source ..\..\database\published\merged_live_data.db --output ..\..\database\published\merged_analytics_cache.db
+python scripts\publish_local_snapshot.py --current "%CURRENT_DB%" --audience "%AUDIENCE_DB%"
 if errorlevel 1 goto :failed
 
 echo.

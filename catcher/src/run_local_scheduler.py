@@ -16,11 +16,13 @@ import multiprocessing
 import os
 import queue
 import sqlite3
+import subprocess
 import sys
 import time
 import traceback
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from collect_all import DEFAULT_CONFIG_DATABASE, DEFAULT_DATABASE, collect_all
@@ -33,6 +35,8 @@ from time_utils import now_db_time
 DEFAULT_INTERVAL_SECONDS = 300
 DEFAULT_COLLECTION_TIMEOUT_SECONDS = 240
 DEFAULT_TIMEZONE = "Asia/Taipei"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_AUDIENCE_DATABASE = PROJECT_ROOT / "database" / "main" / "streamer_audience.db"
 COLLECTOR_JOB_NAMES = ("collect_all", "youtube_collector", "twitch_collector")
 
 
@@ -440,6 +444,8 @@ def run_once(
     config_database: str,
     timezone_name: str,
     timeout_seconds: int,
+    publish_website: bool = False,
+    audience_database: str | Path = DEFAULT_AUDIENCE_DATABASE,
 ) -> int:
     lock = acquire_collection_lock(database)
     if lock is None:
@@ -502,9 +508,48 @@ def run_once(
 
         print_live_report(database)
         print_error_report(summary)
-        return 0 if summary["status"] in {"success", "partial_success"} else 1
+        result_code = 0 if summary["status"] in {"success", "partial_success"} else 1
+        if publish_website:
+            try:
+                refresh_website_snapshot(
+                    database,
+                    audience_database,
+                    timezone_name,
+                )
+            except Exception as exc:
+                result_code = 1
+                print(
+                    f"[{now_text(timezone_name)}] website publish failed "
+                    f"{type(exc).__name__}: {exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                traceback.print_exc()
+        return result_code
     finally:
         release_collection_lock(lock)
+
+
+def refresh_website_snapshot(
+    database: str | Path,
+    audience_database: str | Path,
+    timezone_name: str,
+) -> None:
+    scripts = PROJECT_ROOT / "tools" / "publish" / "scripts"
+    command = [
+        sys.executable,
+        str(scripts / "publish_local_snapshot.py"),
+        "--current",
+        str(Path(database).resolve()),
+        "--audience",
+        str(Path(audience_database).resolve()),
+    ]
+    print(f"[{now_text(timezone_name)}] website publish: build new snapshot", flush=True)
+    subprocess.run(command, cwd=PROJECT_ROOT, check=True)
+    print(
+        f"[{now_text(timezone_name)}] website publish complete; API switched to new snapshot",
+        flush=True,
+    )
 
 
 def main() -> int:
@@ -521,6 +566,17 @@ def main() -> int:
         help="Stop one collection run after this many seconds.",
     )
     parser.add_argument("--timezone", default=DEFAULT_TIMEZONE)
+    parser.add_argument(
+        "--publish-website",
+        action="store_true",
+        help="Refresh the API-only SQLite snapshot and analytics cache after each collection",
+    )
+    parser.add_argument(
+        "--audience-database",
+        type=Path,
+        default=DEFAULT_AUDIENCE_DATABASE,
+        help="Streamer audience database used for the website snapshot",
+    )
     parser.add_argument("--once", action="store_true", help="Run one collection and exit.")
     parser.add_argument(
         "--run-immediately",
@@ -552,7 +608,8 @@ def main() -> int:
     print(
         f"[{now_text(args.timezone)}] scheduler timezone={args.timezone} "
         f"interval_seconds={args.interval_seconds} "
-        f"collection_timeout_seconds={args.collection_timeout_seconds} aligned=true",
+        f"collection_timeout_seconds={args.collection_timeout_seconds} "
+        f"publish_website={args.publish_website} aligned=true",
         flush=True,
     )
 
@@ -568,6 +625,8 @@ def main() -> int:
                         args.config_database,
                         args.timezone,
                         args.collection_timeout_seconds,
+                        args.publish_website,
+                        args.audience_database,
                     ),
                 )
             except KeyboardInterrupt:
